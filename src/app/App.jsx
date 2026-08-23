@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createBuffer, emit, FALL_TIME, BOUNCE_TIME } from "../core/index.js";
+import { createBuffer, emit, resetStroke, FALL_TIME, BOUNCE_TIME } from "../core/index.js";
 import { Scene } from "../render/Scene.jsx";
 import { NoWebGL } from "../frame/NoWebGL.jsx";
 import { TitlePlate } from "../frame/TitlePlate.jsx";
@@ -16,6 +16,7 @@ import {
   TELEPORT_LIMIT,
 } from "../render/grainConstants.js";
 import { createPerfMeter, recordFrame, spacingMultiplierFor } from "./perf.js";
+import { describeReplayResult } from "./replayMessage.js";
 import {
   INVOCATION_POINTS,
   INVOCATION_START,
@@ -182,15 +183,12 @@ export function App() {
     // "segment" from wherever the *previous* stroke (or a large teleport)
     // ended straight to this new point, drawing a spurious connecting line
     // across the pattern — the exact bug TELEPORT_LIMIT is named for in
-    // DESIGN §6.7. `_lastPoint`/`_carry` are documented as internal, not
-    // public contract (T-06 outbox decision #5); resetting them to exactly
-    // the value createBuffer() itself initialises them to, at the one
-    // well-defined moment a new stroke begins, doesn't touch origin/birth/
-    // phase/count/cursor/print and can't affect determinism of what's
-    // already written. Logged as its own ledger entry so Replay can
-    // reproduce these resets in the same places (see logRef's comment).
-    buffer._lastPoint = null;
-    buffer._carry = 0;
+    // DESIGN §6.7. resetStroke() is the core's public API for this (R-03b,
+    // .crew/DECISIONS.md 19:40) — it doesn't touch origin/birth/phase/
+    // count/cursor/print and can't affect determinism of what's already
+    // written. Logged as its own ledger entry so Replay can reproduce these
+    // resets in the same places (see logRef's comment).
+    resetStroke(buffer);
     if (record) logRef.current.push({ type: "reset" });
   }
 
@@ -289,6 +287,12 @@ export function App() {
     const log = logRef.current;
     if (log.length === 0) return;
 
+    // R-03 (.crew/RED-TEAM.md ATTACK 13): this used to be a hardcoded
+    // string, never actually compared. Capture the print the buffer holds
+    // *before* replay so the announcement below can be a real comparison,
+    // not an asserted one.
+    const previousPrint = bufferRef.current.print;
+
     const fresh = createBuffer(CAPACITY);
     bufferRef.current = fresh;
     lastPointRef.current = null;
@@ -301,8 +305,7 @@ export function App() {
     const rebuilt = [];
     for (const entry of log) {
       if (entry.type === "reset") {
-        fresh._lastPoint = null;
-        fresh._carry = 0;
+        resetStroke(fresh);
         rebuilt.push(entry);
         continue;
       }
@@ -315,7 +318,7 @@ export function App() {
     pendingSettleAtRef.current = now + FALL_TIME + BOUNCE_TIME;
     setSettled(false);
     setColophon({ grains: fresh.count, print: fresh.print });
-    setLiveMessage("Replayed. The print is unchanged.");
+    setLiveMessage(describeReplayResult(previousPrint, fresh.print));
   }
 
   // ---- Sweep (§12.3) ----------------------------------------------------

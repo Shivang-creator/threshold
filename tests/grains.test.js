@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBuffer, emit } from '../src/core/grains.js';
+import { createBuffer, emit, resetStroke } from '../src/core/grains.js';
 import { D4 } from '../src/core/dihedral.js';
 
 function arcPath(n, radius = 1) {
@@ -138,4 +138,69 @@ test('test_print_is_stable_when_the_same_path_is_re_emitted_into_a_fresh_buffer'
   const b = createBuffer();
   emit(b, path, 55, { t: 0 });
   assert.equal(a.print, b.print);
+});
+
+// R-03b (.crew/DECISIONS.md 19:40, .crew/RED-TEAM.md ATTACK 12): three call
+// sites (app/App.jsx x2, frame/NoWebGL.jsx) reached into a GrainBuffer's
+// undocumented `_lastPoint`/`_carry` fields directly instead of going
+// through a public API. resetStroke() is that public API.
+test('test_resetStroke_stops_the_spurious_connecting_line_between_strokes', () => {
+  const buf = createBuffer();
+  emit(buf, [{ x: 0, z: 0 }, { x: 0.01, z: 0 }], 5, { t: 0 });
+  const afterFirstStroke = buf.count;
+
+  resetStroke(buf);
+  emit(buf, [{ x: 5, z: 5 }, { x: 5.01, z: 5 }], 5, { t: 1 });
+
+  // Without a reset, resample() would measure a ~7-unit "segment" from the
+  // first stroke's last point to the second stroke's first point and emit
+  // many spurious samples along that phantom connecting line. With
+  // resetStroke(), the second stroke's first point only seeds a fresh
+  // `_lastPoint`; no sample is emitted until its own second point closes a
+  // single 0.01-unit segment — at most one D4 group (8 grains).
+  const secondStrokeGroups = (buf.count - afterFirstStroke) / 8;
+  assert.ok(
+    secondStrokeGroups <= 1,
+    `expected at most 1 sample group from the second stroke's own 0.01-unit segment, got ${secondStrokeGroups}`
+  );
+});
+
+test('test_resetStroke_without_reset_would_draw_the_spurious_connecting_line', () => {
+  // The control arm: prove the test above is actually exercising something —
+  // omitting resetStroke() on the same inputs produces many more grains,
+  // because resample() bridges the gap between the two far-apart strokes.
+  const buf = createBuffer();
+  emit(buf, [{ x: 0, z: 0 }, { x: 0.01, z: 0 }], 5, { t: 0 });
+  const afterFirstStroke = buf.count;
+
+  // no resetStroke(buf) here, deliberately
+  emit(buf, [{ x: 5, z: 5 }, { x: 5.01, z: 5 }], 5, { t: 1 });
+
+  const secondStrokeGroups = (buf.count - afterFirstStroke) / 8;
+  assert.ok(
+    secondStrokeGroups > 1,
+    'expected the un-reset control case to emit a spurious connecting line (>1 sample group)'
+  );
+});
+
+test('test_resetStroke_never_touches_origin_birth_phase_count_cursor_or_print', () => {
+  const buf = createBuffer();
+  emit(buf, [{ x: 0, z: 0 }, { x: 0.05, z: 0 }], 5, { t: 0 });
+  const before = {
+    origin: Array.from(buf.origin),
+    birth: Array.from(buf.birth),
+    phase: Array.from(buf.phase),
+    count: buf.count,
+    cursor: buf.cursor,
+    print: buf.print,
+  };
+
+  resetStroke(buf);
+
+  assert.deepEqual(Array.from(buf.origin), before.origin);
+  assert.deepEqual(Array.from(buf.birth), before.birth);
+  assert.deepEqual(Array.from(buf.phase), before.phase);
+  assert.equal(buf.count, before.count);
+  assert.equal(buf.cursor, before.cursor);
+  assert.equal(buf.print, before.print);
 });

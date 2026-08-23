@@ -6,18 +6,31 @@
 // core and spliced in as literals — if sim.js's constants ever change, this
 // string is rebuilt with them, so the two cannot drift silently.
 //
-// Verified by hand against all 12 golden vectors in tests/sim.test.js. 11 of
-// 12 match bit-for-bit modulo float32 rounding. The 12th — args
-// [-3.5,0,4.25,2,0.5,2.6] -> y = 7.460698725481049e-16 — is a float64
-// rounding artifact of `2.6 - 2` landing a hair *inside* the bounce window
-// instead of exactly on FALL_TIME (see outbox/T-06.md decision #3). In
-// float32, `2.6 - 2` rounds the other way and the *fall* branch's tiny-eased
-// tail is taken instead (~3.8e-14 by direct calculation), not the bounce
-// branch. Both are visually and numerically indistinguishable from the
-// settled value 0 — the grain is at rest either way — but the exact bit
-// pattern cannot be reproduced on a float32 GPU. This is a hardware
-// precision limit, not an algebra mismatch; documented here rather than
-// hidden, per T-06's fence.
+// Verified against all 12 golden vectors in tests/sim.test.js with an
+// independent float32 (Math.fround-at-every-step) emulation of this file's
+// own algebra (R-04, .crew/RED-TEAM.md ATTACK 6 — an earlier version of
+// this comment claimed "11 of 12 match bit-for-bit"; a hostile reader
+// running the same check got 8 of 12, which is what this says now):
+//
+//   All twelve agree with the float64 core to within 1.7e-7 world units.
+//
+// Eight of the twelve are bit-identical after float32 rounding. Four take a
+// different last bit; the largest of those is ordinary float32 rounding on
+// the golden vector args [-3.5,0,4.25,2,0.5,2.3] (t=2.3), off by ~1.6e-7
+// world units — nothing dramatic, just rounding.
+//
+// Exactly one vector — args [-3.5,0,4.25,2,0.5,2.6] -> y = 7.460698725481049e-16
+// — is qualitatively different: a float64 rounding artifact of `2.6 - 2`
+// landing a hair *inside* the bounce window instead of exactly on
+// FALL_TIME (see outbox/T-06.md decision #3). In float32, `2.6 - 2` rounds
+// the other way and the *fall* branch's tiny-eased tail is taken instead
+// (~3.8e-14 by direct calculation), not the bounce branch — a difference
+// four million times smaller than the ordinary rounding gap above. Both are
+// visually and numerically indistinguishable from the settled value 0 — the
+// grain is at rest either way. This is a hardware precision limit, not an
+// algebra mismatch; documented here rather than hidden, per T-06's fence.
+// (tests/float32Disclosure.test.js locks in the 8/12 and 1.7e-7 figures
+// above so this comment cannot silently drift back out of true.)
 
 import {
   SPAWN_HEIGHT,

@@ -7,7 +7,7 @@ export { dihedral, D4 } from './dihedral.js';
 export { mulberry32 } from './rng.js';
 export { fnv1a32 } from './hash.js';
 export { orbit } from './eightfold.js';
-export { createBuffer, emit } from './grains.js';
+export { createBuffer, emit, resetStroke } from './grains.js';
 export {
   positionAt,
   SPAWN_HEIGHT,

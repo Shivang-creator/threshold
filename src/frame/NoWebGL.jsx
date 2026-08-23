@@ -1,4 +1,4 @@
-import { createBuffer, emit } from "../core/index.js";
+import { createBuffer, emit, resetStroke } from "../core/index.js";
 
 // DESIGN §8b — the fallback screen. ANALYSIS §5 names school-managed
 // laptops with restricted WebGL as kill-risk 1; this is not an error page,
@@ -99,12 +99,12 @@ function buildKolam() {
   const buffer = createBuffer(6000);
   for (const stroke of STROKES) {
     // Resets the core's arc-length continuity between logically separate
-    // strokes — the same direct-field reset App.jsx's startStroke() uses,
-    // for the same reason (T-06 outbox decision #5): without it,
+    // strokes via the core's public resetStroke() (R-03b,
+    // .crew/DECISIONS.md 19:40) — the same call App.jsx's
+    // resetContinuity()/replay() use, for the same reason: without it,
     // core/grains.js's resample() would draw a spurious connecting line
     // from one stroke's last point straight to the next stroke's first.
-    buffer._lastPoint = null;
-    buffer._carry = 0;
+    resetStroke(buffer);
     emit(
       buffer,
       stroke.map(([x, z]) => ({ x, z })),

@@ -86,6 +86,29 @@ function resample(buffer, segment, spacing) {
 }
 
 /**
+ * Reset a buffer's arc-length continuity so the next emit() call begins a
+ * fresh stroke instead of measuring a spurious "segment" from wherever the
+ * previous stroke (or an unrelated teleport) last left off (see
+ * TELEPORT_LIMIT's use in app/App.jsx for the bug this guards against).
+ *
+ * This is the public replacement for reaching into a buffer's
+ * `_lastPoint`/`_carry` fields directly. Those fields are internal, not
+ * public contract (see createBuffer()'s comment) — three call sites
+ * (app/App.jsx's resetContinuity() and replay(), frame/NoWebGL.jsx's
+ * buildKolam()) used to set them directly, which is exactly the kind of
+ * boundary violation this build's headline "clean core boundary" claim
+ * promises does not happen (.crew/DECISIONS.md 19:40, .crew/RED-TEAM.md
+ * ATTACK 12 / R-03b). resetStroke() does not touch origin/birth/phase/
+ * count/cursor/print — it only clears the continuity state resample() uses.
+ *
+ * @param {object} buffer  a GrainBuffer from createBuffer()
+ */
+export function resetStroke(buffer) {
+  buffer._lastPoint = null;
+  buffer._carry = 0;
+}
+
+/**
  * Write a new path segment into the buffer: resample, jitter, mirror,
  * store, ring-wrap, rehash.
  * @param {object} buffer  a GrainBuffer from createBuffer()
