@@ -6,3 +6,4 @@ dist/
 # Crew working files — internal planning, not part of the submission.
 # Excluded deliberately: see .crew/DECISIONS.md 2026-08-23 23:10.
 .crew/
+.DS_Store

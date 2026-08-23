@@ -15,14 +15,21 @@ once, and settles into wet dark stone.
 `node:` builtin, and no core file may reference `window`, `document`, `fetch`, `Math.random`,
 `Date.now`, or `performance`.**
 
-That rule is enforced by `tests/boundary.test.js`, not just stated: it reads every `.js` file
-under `src/core/` from disk and fails the build the moment either constraint breaks. It also
-checks — the anti-vacuous half — that it actually saw all seven expected core modules, so the
-guard cannot pass trivially if `src/core/` were ever renamed or emptied.
+That rule is checked by `tests/boundary.test.js`: it reads every `.js` file under `src/core/`
+from disk and fails on a violation written the ordinary way. It also checks — the anti-vacuous
+half — that it saw all seven expected core modules, so it cannot pass trivially if `src/core/`
+were emptied.
+
+Its limits, since a guard that overstates itself is worse than no guard. It is a regex over source
+text, not a resolver, and a red-team pass got past it five ways: `import 'three'` with no `from`
+clause, a dynamic `import()`, computed member access like `Math['ran'+'dom']()`, the same trick on
+`globalThis`, and a new `src/core/lib/` subdirectory that the module census does not enumerate. It
+catches an honest mistake, which is what it is for. It would not stop someone determined to break
+the boundary on purpose.
 
 ```
 npm run test:boundary   # 2 tests, ~70ms, no browser, no bundler
-npm test                # the full suite — 52 tests, ~150ms
+npm test                # the full suite — 60 tests, ~150ms
 ```
 
 The core is pure ESM JavaScript over numbers: `dihedral.js` (the symmetry group, as data),
@@ -42,8 +49,14 @@ The fall-and-bounce formula is written twice: once in `src/core/sim.js` (for the
 anything the core needs to reason about), and once in `src/render/grain.vert.js` (GLSL, for the
 GPU). This is deliberate, not an oversight — the core must not import GLSL, and the GPU cannot
 import JavaScript. It is fenced by `test_sim_matches_shader_reference_vectors` in
-`tests/sim.test.js`: 12 golden `(grain, t) → position` triples, frozen from `sim.js` itself, that
-the shader must reproduce exactly. If the two ever drift, that test fails.
+`tests/sim.test.js`: 12 golden `(grain, t) → position` triples, frozen from `sim.js` itself.
+
+That fence closes in one direction only, and it is worth being exact about which. The test pins the
+JavaScript so it cannot drift silently. **Nothing in the suite compiles or executes the GLSL**, so
+an edit to `grain.vert.js` alone would not fail anything. The shader was verified against those
+vectors by hand, under `Math.fround` emulation of float32: all twelve agree to within 1.7e-7 world
+units, eight of them bit-identical. The disagreements are float32-versus-float64 rounding at a
+branch boundary, far below anything a pixel could show.
 
 ## Mocked vs real
 
@@ -61,8 +74,9 @@ the shader must reproduce exactly. If the two ever drift, that test fails.
 
 `node --test`, built in, zero dependencies — no vitest, no jest, no jsdom, no config file.
 
-**52 tests passing:** `dihedral.test.js` (10) · `rng.test.js` (6) · `hash.test.js` (4) ·
-`eightfold.test.js` (12) · `grains.test.js` (10) · `sim.test.js` (8) · `boundary.test.js` (2).
+**60 tests passing:** `dihedral.test.js` (10) · `rng.test.js` (6) · `hash.test.js` (4) ·
+`eightfold.test.js` (12) · `grains.test.js` (13) · `sim.test.js` (8) · `boundary.test.js` (2) ·
+`replayMessage.test.js` (3) · `float32Disclosure.test.js` (2).
 
 ```
 npm test
