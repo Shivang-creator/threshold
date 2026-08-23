@@ -1,46 +1,74 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 /**
  * Drag-to-ground-point hook. Spread the returned handlers onto a mesh's
  * pointer props; @react-three/fiber already resolves the world-space
  * intersection via its own raycaster, so `event.point` is the ground-space
- * hit — no manual THREE.Raycaster needed for this stub.
+ * hit — no manual THREE.Raycaster needed.
  *
- * T-02 stub: `onPoint` just logs. T-08/T-09 replace the callback with a
- * write into the core's grain buffer (core/grains.js) instead — this hook's
- * shape (down/move/up handlers producing {x, z} points) does not change.
+ * T-02 stub shape kept, extended for T-09: separate onDown/onMove/onUp
+ * callbacks (the stub only had one `onPoint` used for both down and move,
+ * which can't tell App.jsx "this is the start of a new stroke" — needed for
+ * DESIGN §4.3's tap-emits-before-any-movement behaviour and for resetting
+ * the core's arc-length continuity between strokes).
  *
- * @param {(point: {x: number, z: number}) => void} onPoint
+ * Per DESIGN §9.1: only the first active pointer is tracked; a second touch
+ * point is ignored outright (prevents chaos / accidental pinch-zoom). Leave,
+ * cancel, and window blur all behave exactly like pointerup.
+ *
+ * @param {{
+ *   onDown?: (point: {x:number, z:number}) => void,
+ *   onMove?: (point: {x:number, z:number}) => void,
+ *   onUp?: () => void,
+ * }} handlers
  */
-export function useDrag(onPoint) {
-  const dragging = useRef(false);
+export function useDrag({ onDown, onMove, onUp } = {}) {
+  const activePointerId = useRef(null);
+
+  const end = useCallback(
+    (event) => {
+      if (event && event.pointerId !== activePointerId.current) return;
+      if (activePointerId.current === null) return;
+      activePointerId.current = null;
+      event?.target?.releasePointerCapture?.(event.pointerId);
+      onUp?.();
+    },
+    [onUp]
+  );
 
   const onPointerDown = useCallback(
     (event) => {
-      dragging.current = true;
+      // Second+ touch point while one is already active: ignored.
+      if (activePointerId.current !== null) return;
+      activePointerId.current = event.pointerId;
       event.target.setPointerCapture?.(event.pointerId);
-      onPoint({ x: event.point.x, z: event.point.z });
+      onDown?.({ x: event.point.x, z: event.point.z });
     },
-    [onPoint]
+    [onDown]
   );
 
   const onPointerMove = useCallback(
     (event) => {
-      if (!dragging.current) return;
-      onPoint({ x: event.point.x, z: event.point.z });
+      if (activePointerId.current === null) return;
+      if (event.pointerId !== activePointerId.current) return;
+      onMove?.({ x: event.point.x, z: event.point.z });
     },
-    [onPoint]
+    [onMove]
   );
 
-  const onPointerUp = useCallback((event) => {
-    dragging.current = false;
-    event.target.releasePointerCapture?.(event.pointerId);
-  }, []);
+  // window blur behaves exactly like pointerup (DESIGN §9.1) — the mesh
+  // never sees a blur event, so this is a window-level listener.
+  useEffect(() => {
+    const onBlur = () => end();
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [end]);
 
   return {
     onPointerDown,
     onPointerMove,
-    onPointerUp,
-    onPointerLeave: onPointerUp,
+    onPointerUp: end,
+    onPointerLeave: end,
+    onPointerCancel: end,
   };
 }

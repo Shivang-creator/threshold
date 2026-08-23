@@ -1,39 +1,43 @@
 # DESIGN — Threshold
 
-pc-designer, **Sun 23 Aug 2026, 18:0x IST**. Reads on top of `.crew/BRIEF.md`, `.crew/ANALYSIS.md`,
-`.crew/IDEAS.md` (Candidate 1), `.crew/DECISIONS.md`, and `references/design-craft.md`.
+pc-designer, **Sun 23 Aug 2026, 18:2x IST**. Reads on top of `.crew/BRIEF.md`, `.crew/ANALYSIS.md`,
+`.crew/IDEAS.md` (Candidate 1), `.crew/DECISIONS.md`, `.crew/PLAN.md` + `.crew/BOARD.md`
+(pc-architect, 18:16), and `references/design-craft.md`.
 
-**Implementer:** pc-frontend. **Budget this spec is written to:** ~2.5 h of frontend work inside the
-4 h build envelope. Every number below is a value to type, not a direction to interpret.
+**Implementer:** pc-frontend (T-11, T-12, T-13, T-14) with pc-backend owning the attributes named in
+§6.7. **Written to:** ~2.5 h of frontend work inside the 4 h envelope.
 
-> **PLAN.md did not exist when this was written** (pc-architect ran in parallel). This spec covers
-> **one screen plus one fallback screen**, which is the entirety of the piece. If PLAN.md names any
-> screen beyond `Stage` and `Still`, it is **not covered here** and must come back to pc-designer.
-> **No epistemic-tag legend is specified** — Threshold makes no informational claims, so there is
-> nothing to tag. If PLAN.md introduces a tag vocabulary, this file needs a 5-minute amendment.
+> **Reconciled against PLAN.md.** PLAN.md was written in parallel and it changed the substrate: the
+> renderer is **one `<points>` object over a 20,000-slot preallocated buffer, positioned by a
+> closed-form vertex shader**, not the instanced-mesh CPU simulation I had first specced. **The
+> architect's substrate wins** — it is faster, cheaper to build, and it is the foundation of the
+> determinism claim. This document is written entirely on top of it. Every place I overrode or
+> extended PLAN.md is listed in **§12**, with costs. **§12 is for the Crew Chief, not pc-frontend.**
+
+**Screens covered:** `Stage` (the whole piece) and `NoWebGL` (the fallback). Those are the only two
+screens PLAN.md names. **Nothing in PLAN.md's task list is unspecced here.**
 
 ---
 
 ## 0. The three questions, answered before anything else
 
 **1. What are the six seconds a judge screenshots?**
-The centre crossing of a stroke: eight arcs of rice powder in mid-fall converging on the origin,
-the flare blooming there, the settled trail glowing warm behind each arc on near-black wet stone,
-one quadrant still bare. §3 specifies it frame by frame. **§3.3 is the single most important
-section of this document** — everything else exists to deliver that frame.
+The centre crossing of a stroke: eight arcs of rice powder in mid-fall converging on the origin, the
+flare blooming there, the settled trail glowing warm behind each arc on near-black wet stone, one
+quadrant still bare. **§3.3 specifies that frame exactly and is the most important section here.**
 
 **2. What does the heaviest criterion name as its audience?**
-Criterion 1 (Visual Design) names *"composition, color, lighting, typography, animations, overall
-presentation."* Criterion 3 names *"responsiveness"*. The named protagonist is **a judge alone, on
-an unknown machine, for 30–60 seconds** — plausibly a school-managed laptop with integrated
-graphics or WebGL restricted (ANALYSIS §5, kill-risk 1), plausibly a phone. So: mobile is a
-first-class layout, not a fallback; the WebGL-unavailable path is a **composed frame, not an error
-message** (§8.12); and no performance downgrade is ever surfaced in the UI (§8.13).
+Criterion 1 names *"composition, color, lighting, typography, animations, overall presentation."*
+Criterion 3 names *"responsiveness."* The protagonist is **a judge alone, on an unknown machine, for
+30–60 seconds** — plausibly a school laptop with integrated graphics or WebGL restricted (ANALYSIS
+§5, kill-risk 1), plausibly a phone. Consequences that bind this whole spec: mobile is a first-class
+layout; **`NoWebGL` is a composed frame, never an error page** (§8b); every desktop-key beat has a
+touch equivalent (§9.1); and no performance downgrade is ever announced in warning language (§8.13).
 
 **3. What is the performance budget and the named technique that holds it?**
-60 fps at 40,000 settled + 6,000 in-flight grains on M1, ≥45 fps at Tier C on Intel UHD 620, held
-by the **flight-pool / settled-bed split** — per-frame matrix writes are bounded by the in-flight
-count, never by how much the judge has drawn. Full budget and all eight named techniques in §7.
+60 fps on integrated graphics at the full 20,000-grain cap, held by **closed-form position in a
+vertex shader** — steady-state per-frame CPU cost is three uniform writes and one integer, and it
+does not grow as the judge keeps drawing. Full budget and all seven named techniques in §7.
 
 ---
 
@@ -41,46 +45,50 @@ count, never by how much the judge has drawn. Full budget and all eight named te
 
 ### 1.1 Palette
 
-All values sRGB hex. Renderer runs `THREE.ColorManagement` enabled, `outputColorSpace = SRGBColorSpace`.
-Two families and exactly one accent. Nothing else enters the palette.
+sRGB hex. `THREE.ColorManagement` enabled, `outputColorSpace = SRGBColorSpace`. Because both the
+ground and the grains are custom shaders (§6.4), **most of these values arrive as `uniform vec3`s,
+converted once with `new THREE.Color(hex).convertSRGBToLinear()`.** Two families, one accent,
+nothing else enters the palette.
 
 **Stone — near-black wet granite (cool)**
 
-| Token | Value | Where it is used |
+| Token | Value | Where |
 |---|---|---|
-| `--stone-900` | `#06080A` | Page background (set inline in `index.html`), vignette floor, `Still` ground |
-| `--stone-800` | `#0B0F12` | Ground-plane albedo |
-| `--stone-700` | `#141A1F` | The lit face of the slab under the key (emerges from lighting, not painted) |
-| `--stone-sheen` | `#2A3A44` | Cool specular tint of the wet film — the "wet" in wet stone |
+| `--stone-900` | `#06080A` | Page background (inline on `<body>`), vignette floor, `NoWebGL` ground |
+| `--stone-800` | `#0B0F12` | Ground shader base albedo (`uStone`) |
+| `--stone-700` | `#141A1F` | The lit face near the lamp — emerges from the falloff term, never painted |
+| `--stone-sheen` | `#2A3A44` | Fresnel sheen of the wet film (`uSheen`) — this is the "wet" in wet stone |
 
 **Powder — warm emissive rice flour**
 
-| Token | Value | Where it is used |
+| Token | Value | Where |
 |---|---|---|
-| `--powder-core` | `#FFF3D6` | Hottest grain centres (15% of instance-colour draws) |
-| `--powder-100` | `#FFE6B0` | Grain material base colour, 60% of instance-colour draws |
-| `--powder-300` | `#FFC978` | 25% of instance-colour draws — the mass reading |
-| `--powder-500` | `#F2A64B` | `emissive` on both grain materials; cursor point |
-| `--powder-700` | `#C2691F` | Grain shadow-side falloff (from lighting, not painted) |
-| `--powder-glow` | `#FF9C3D` | Bloom tint only |
+| `--powder-core` | `#FFF3D6` | Tint ramp stop 0 — hottest grains |
+| `--powder-100` | `#FFE6B0` | Tint ramp stop 1 — grain base, the mass reading |
+| `--powder-300` | `#FFC978` | Tint ramp stop 2 |
+| `--powder-500` | `#F2A64B` | `uEmissive` on grains; the cursor point |
+| `--powder-700` | `#C2691F` | Grain shadow-side floor in the fragment shader |
+| `--lamp` | `#FFB765` | The key light colour (`uKeyColor`) |
+| `--predawn` | `#4E7A94` | The rim light colour (`uRimColor`) — the cool half of the thesis |
 
-**Accent — kumkum (the red powder set beside a white kolam at a doorstep). One accent, three jobs, no fourth.**
+**Accent — kumkum** (the red powder set beside a white kolam at a doorstep).
+**One accent, three jobs, no fourth.**
 
 | Token | Value | The three jobs |
 |---|---|---|
-| `--kumkum` | `#B3242A` | (1) the rule under the title, which is also the load progress line · (2) every `:focus-visible` ring · (3) the `RELOAD` outline in the context-lost state |
+| `--kumkum` | `#B3242A` | (1) the rule under the title, which is also the load progress bar · (2) every `:focus-visible` ring · (3) the `RELOAD` outline in the context-lost state |
 
 **Interface**
 
-| Token | Value | Contrast on `--stone-900` | Use |
+| Token | Value | Contrast on `#06080A` | Use |
 |---|---|---|---|
-| `--ink-100` | `#EFE6D6` | **16.2 : 1** (AAA) | Title, hover text |
-| `--ink-60` | `#9AA3A8` | **8.1 : 1** (AAA) | Concept line, Tamil line, button labels |
-| `--ink-35` | `#78838A` | **5.3 : 1** (AA all sizes) | Colophon, hint, micro-labels |
-| `--hairline` | `rgba(239,230,214,0.14)` | — | Button borders at rest |
+| `--ink-100` | `#EFE6D6` | **16.2 : 1** AAA | Title, hover text, active button label |
+| `--ink-60` | `#9AA3A8` | **8.1 : 1** AAA | Concept line, Tamil line, button labels, `NoWebGL` copy |
+| `--ink-35` | `#78838A` | **5.3 : 1** AA all sizes | Colophon, epistemic tags, hint, micro-labels |
+| `--hairline` | `rgba(239,230,214,0.14)` | — | Button borders at rest, colophon tag rule |
 | `--hairline-hi` | `rgba(239,230,214,0.38)` | — | Button borders on hover/focus |
 
-**Never used anywhere:** pure `#000`, pure `#FFF`, any violet/cyan tech gradient, any colour outside
+**Never used, anywhere:** pure `#000`, pure `#FFF`, any violet/cyan tech gradient, anything outside
 the two families and the one accent.
 
 ### 1.2 Dark-mode stance — stated, not defaulted
@@ -89,83 +97,83 @@ the two families and the one accent.
 before dawn is dark, and a light variant would destroy the emissive powder, the bloom threshold, and
 the entire palette thesis. `prefers-color-scheme` is deliberately **ignored**.
 
-Required so browser chrome agrees with the page:
 ```css
 :root { color-scheme: dark; }
 ```
 ```html
 <meta name="theme-color" content="#06080A">
-<body style="background:#06080A">   <!-- inline, before any CSS loads: no white flash, ever -->
+<body style="background:#06080A">   <!-- inline, before any CSS parses: no white flash, ever -->
 ```
 
 ### 1.3 Type scale
 
-Modular, ratio 1.25, with the display size jumping outside the scale on purpose — the title is a
-different order of object from the text.
+Modular ratio 1.25; the display size jumps outside the scale on purpose — the title is a different
+order of object from the text.
 
 | Role | Size | Face / weight | Tracking | Leading | Colour |
 |---|---|---|---|---|---|
 | Display (title) | `clamp(3.0rem, 7.2vw, 6.0rem)` | Instrument Serif 400 | `0.02em` | `0.92` | `--ink-100` |
 | Tamil sub-line | `clamp(0.95rem, 1.5vw, 1.15rem)` | Tamil stack (§1.4) | `0.02em` | `1.4` | `--ink-60` |
 | Concept line | `clamp(0.95rem, 1.35vw, 1.075rem)` | IBM Plex Sans 400 | `0` | `1.5` | `--ink-60` |
-| Micro-label (hint, buttons) | `0.8125rem` | IBM Plex Sans 500 | `0.14em`, uppercase | `1` | `--ink-35` / `--ink-60` |
-| Colophon | `0.75rem` | IBM Plex Sans 400 | `0.04em` | `1.4` | `--ink-35` |
+| Micro-label (buttons, hint, `R TO REPLAY`) | `0.8125rem` | IBM Plex Sans 500 | `0.14em`, uppercase | `1` | `--ink-35` / `--ink-60` |
+| Colophon fact | `0.75rem` | IBM Plex Sans 400 | `0.04em` | `1.55` | `--ink-35` |
+| Epistemic tag | `0.6875rem` | IBM Plex Sans 500 | `0.16em`, uppercase | `1.55` | `--ink-35` |
+| Print value (`8f2a1c3d`) | `0.75rem` | `ui-monospace, "SFMono-Regular", Menlo, monospace` | `0.02em` | `1.55` | `--ink-60` |
 
-**Font-scaling rule:** every type size in `rem`. **Do not** set `html { font-size: 62.5% }` — it
-breaks user font scaling. Layout must survive 200% browser zoom: the overlay is `position: fixed`
-with `max-width` constraints and wraps rather than clips.
+**Font-scaling rule:** every size in `rem`. **Do not** set `html { font-size: 62.5% }` — it breaks
+user font scaling. Layout must survive 200% browser zoom: the overlay is `position: fixed` with
+`max-width` constraints and wraps rather than clips.
 
 ### 1.4 Faces, and why these
 
-**Display — `Instrument Serif` 400** (SIL OFL, one weight, ~14 KB woff2 Latin subset).
-The reason is not taste, it is rhyme: Instrument Serif has extreme thick/thin stroke contrast —
-heavy where the pen bears down, hairline where it lifts. **The whole piece is about a stroke.** The
-title's letterforms carry the same event as the mechanic. A geometric sans here would be a design
-that has nothing to say about its subject.
+**Display — Instrument Serif 400.** Not taste, rhyme: Instrument Serif has extreme thick/thin stroke
+contrast — heavy where the pen bears down, hairline where it lifts. **The whole piece is about a
+stroke.** The letterforms carry the same event as the mechanic. A geometric sans here would be a
+design with nothing to say about its subject.
 Stack: `"Instrument Serif", "Cormorant Garamond", Georgia, "Times New Roman", serif`
 
-**Text — `IBM Plex Sans` 400 / 500** (SIL OFL, ~2 × 20 KB).
-Chosen against Inter deliberately (rule 25 — Inter is the typographic default-Streamlit). Plex is
-slightly mechanical, humanist, and reads cleanly at 0.75rem on a dark ground.
+**Text — IBM Plex Sans 400 / 500.** Chosen against Inter deliberately (rule 25 — Inter is the
+typographic default-Streamlit). Plex is slightly mechanical, humanist, and holds at 0.6875rem on a
+dark ground, which the epistemic tags need.
 Stack: `"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`
 
 **Tamil — system stack, zero bytes downloaded.**
 `"Noto Sans Tamil", "Tamil Sangam MN", Latha, "Nirmala UI", sans-serif` — present on macOS, iOS,
-Windows and Android. No font file ships for Tamil.
+Windows, Android. No font file ships for Tamil.
 
-**Self-hosting (required — no third-party font CDN):**
-- Both Latin faces as `woff2` in `/public/fonts/`, `font-display: swap`.
-- `<link rel="preload" as="font" type="font/woff2" crossorigin>` for **Instrument Serif only**
-  (the title is the first thing painted; the text faces can swap).
+**Packaging (PLAN.md §5 requires `@fontsource`, self-hosted, and ≤ 8 production deps):**
+- `@fontsource/instrument-serif` and `@fontsource/ibm-plex-sans` (weights 400 + 500 only).
+  That is **6 + 2 = 8 deps exactly**, and drops to 7 when drei is removed at T-22 (§7.2, note 6).
+- Import only the weights used. **No `fonts.googleapis.com` link, ever** — a school network may
+  block it and the title is the first paint.
+- If either package fails to resolve inside 5 minutes: **fall back to the system stacks above and
+  move on.** Do not stall the build on a font, and do not substitute a CDN link.
 
-**Tamil tofu guard (8 lines, removes the risk entirely):** on boot, measure the rendered width of
-`"கோலம்"` and of `"￿￿￿￿￿"` in the same font stack on a 2D canvas. If the
-widths are equal (both rendering as tofu), add `class="no-tamil"` to `<html>`; CSS then sets
-`.no-tamil .tamil { display: none }`. The Tamil word is supplementary — the plate reads correctly
-without it.
+**Tamil tofu guard** (8 lines, removes the risk entirely): at boot, measure the rendered width of
+`"கோலம்"` and of a private-use string in the same stack on a 2D canvas. Equal widths mean both
+rendered as tofu → add `class="no-tamil"` to `<html>`; CSS sets `.no-tamil .tamil{display:none}`.
+The Tamil word is supplementary and the plate reads correctly without it.
 
-### 1.5 Spacing & radii
+### 1.5 Spacing, radii, motion
 
-4 px base. Steps: `4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96`.
-Overlay page margin: `32px` desktop, `20px` mobile, plus `env(safe-area-inset-*)` on all four sides.
-Radii: `2px` on buttons. **No pills, no cards, no rounded panels** — the type sits directly on the scene.
-
-### 1.6 Motion tokens
+4 px base: `4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96`.
+Page margin `32px` desktop / `20px` mobile, plus `env(safe-area-inset-*)` on all four sides.
+Radii `2px` on buttons. **No pills, no cards, no rounded panels** — type sits directly on the scene.
 
 | Token | Value | Use |
 |---|---|---|
 | `--ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` | Everything appearing |
 | `--ease-in` | `cubic-bezier(0.7, 0, 0.84, 0)` | Everything dissolving |
 | `--dur-fast` | `180ms` | Hover, focus |
-| `--dur-mid` | `420ms` | Hint fade, button state |
-| `--dur-slow` | `900ms` | Sweep, title plate entrance |
+| `--dur-mid` | `420ms` | Hint fade, button state, the print flicker |
+| `--dur-slow` | `900ms` | Sweep, title-plate entrance |
 
 ---
 
 ## 2. Copy — every string on the page, verbatim
 
-pc-frontend writes **no** strings that are not in this table. No lorem ipsum, no placeholders, no
-invented microcopy, no emoji anywhere (EmoLens precedent: ambiguity is a design bug).
+pc-frontend writes **no** string that is not in this table. No lorem ipsum, no placeholders, no
+invented microcopy, **no emoji anywhere** (EmoLens precedent: ambiguity is a design bug).
 
 | Element | Exact string |
 |---|---|
@@ -174,22 +182,29 @@ invented microcopy, no emoji anywhere (EmoLens precedent: ambiguity is a design 
 | Title | `Threshold` |
 | Tamil sub-line | `கோலம் · a doorstep drawing` |
 | Concept line | `One stroke falls as eight. Rice powder on wet stone — a kolam, the way it is drawn on the doorstep at dawn.` |
-| Hint (appears only at t = 7 s with no interaction; permanent on first pointerdown) | `DRAG THE STONE` |
+| Hint (t = 7 s, only if untouched; permanent on first pointerdown) | `DRAG THE STONE` |
+| Replay hint (appears beside the print after the first stroke settles) | `R TO REPLAY` — coarse pointers: `REPLAY` |
 | Motion button, default | `MOTION` |
 | Motion button, reduced | `MOTION REDUCED` |
 | Sweep button | `SWEEP` |
-| Colophon | `the Eightfold · every grain of this is generated in code` |
+| Colophon line 1 | `eightfold — D4` · tag `RULE` |
+| Colophon line 2 | `seed 4821 · print 8f2a1c3d` · tag `GENERATED` (values live) |
+| Colophon line 3 | `19 208 grains` · tag `OBSERVED` (value live, space-grouped thousands) |
+| Colophon line 4 | `fall & settle — closed form, not physics` · tag `SIMULATED` |
 | Canvas `aria-label` | `A kolam drawing surface. Drag, or use the arrow keys, to draw. Every stroke is mirrored eight ways.` |
-| Live region, after a stroke | `Eight strokes drawn.` |
-| Live region, after sweep | `Stone swept.` |
-| `Still` (WebGL unavailable) | `This browser could not open a 3D canvas. The drawing is here anyway.` |
-| `Still` (context lost mid-session) | `The 3D canvas was interrupted.` |
-| Reload button in context-lost | `RELOAD` |
+| Live region, stroke settled | `Eight strokes drawn.` |
+| Live region, replay | `Replayed. The print is unchanged.` |
+| Live region, sweep | `Stone swept.` |
+| `NoWebGL` line | `This browser could not open a 3D canvas. The drawing is here anyway.` |
+| Context lost | `The 3D canvas was interrupted.` |
+| Reload button | `RELOAD` |
 
-**Note on "zero instructions":** the concept line *describes*, it never *instructs*. The mechanic is
+**On "zero instructions":** the concept line *describes*, it never *instructs*. The mechanic is
 taught by demonstration (§4). `DRAG THE STONE` is a **7-second rescue for the judge who does not
-try**, not an onboarding step — it does not exist on load and it never returns once dismissed. The
-only place a real instruction lives is the canvas `aria-label`, where assistive tech needs it.
+try** — it does not exist on load and never returns once dismissed. `R TO REPLAY` is a keycap label
+attached to the thing it affects, appearing only after the judge has produced a print worth
+replaying — not an onboarding step. The only real instruction lives in the canvas `aria-label`,
+where assistive tech needs it. **There is no instruction panel. PLAN.md §12 refuses one; so does this.**
 
 ---
 
@@ -197,156 +212,159 @@ only place a real instruction lives is the canvas `aria-label`, where assistive 
 
 ### 3.1 The mechanic — the Eightfold
 
-The dihedral group **D4**, order 8, applied to every emitted point `(x, z)` in the ground plane:
+D4, order 8, applied in `core/eightfold.js` to every resampled path point `(x, z)`:
 
 ```
-1. ( x,  z)      identity
-2. (-z,  x)      rotate  90°
-3. (-x, -z)      rotate 180°
-4. ( z, -x)      rotate 270°
-5. ( z,  x)      reflect in the  x = z  diagonal
-6. (-x,  z)      reflect in the z axis
-7. (-z, -x)      reflect in the  x = -z diagonal
-8. ( x, -z)      reflect in the x axis
+1. ( x,  z)   identity          5. ( z,  x)   reflect in x = z
+2. (-z,  x)   rotate  90°       6. (-x,  z)   reflect in the z axis
+3. (-x, -z)   rotate 180°       7. (-z, -x)   reflect in x = -z
+4. ( z, -x)   rotate 270°       8. ( x, -z)   reflect in the x axis
 ```
 
-Pure function, no state, `sim/eightfold.js`. It is the whole product.
-
-**Mirror exactness — decided, do not deviate.** The random scatter offset within a pinch is drawn
-**once** and then transformed by all eight elements, so the eight copies are **pixel-exact mirrors**,
-not eight statistically similar clouds. Reasoning: the symmetry *is* the concept, and imperfect
-mirroring reads as sloppy at a glance. The organic quality comes from the irregularity of the human
-stroke, which is already there for free.
+**Mirror exactness is a design requirement, and PLAN.md §2 already builds it correctly:** jitter is
+applied to the source sample **before** the group, so the eight arms are congruent to floating-point
+equality rather than merely statistically similar. Do not move the jitter after the group to "make it
+organic." The symmetry *is* the concept, and imperfect mirroring reads as sloppy at a glance; the
+organic quality comes from the irregularity of the human stroke, which is already free.
 
 ### 3.2 The six seconds, frame by frame
 
-Timestamps are from **pointerdown** of a single stroke that crosses the centre.
+Timestamps from **pointerdown** of one stroke crossing the centre.
 
 | t | What is on screen |
 |---|---|
-| **0.00** | Pointerdown. One pinch fires **before any movement** — 32 grains appear at 8 mirrored positions at y = 0.34 and begin to fall. *Eight marks exist before the hand has moved.* This is the tutorial. |
-| **0.08** | The drag begins. Eight streams start. Because grains fall from y = 0.34 over ~0.43 s, there is always a **standing column of powder in the air behind the cursor** — the stroke is a falling ribbon, not a line. |
-| **0.20** | First grains touch the stone, hop once (~0.09 s, restitution 0.28), and settle. The pattern begins to exist. |
-| **0.55** | Steady state. Airborne grains at `emissiveIntensity 0.75`; settled at `0.35`. **The live ribbon is the brightest thing on screen and its own history is a warm ember trail behind it.** Bloom (`luminanceThreshold 0.28`) picks up the ribbon and almost none of the bed. |
-| **1.60** | **The centre crossing.** All eight streams converge, cross, and diverge. Eight-times density lands in one place: **the flare.** Bloom spreads warm light onto the surrounding wet stone, which returns it as a cool-to-warm specular sheen. Single brightest frame of the whole piece. |
-| **2.40** | Pointerup. Emission stops. The remaining in-flight grains complete their fall. |
+| **0.00** | Pointerdown. One sample-step emits **before any movement** — 32 grains at 8 mirrored positions, starting from y = 0.34. *Eight marks exist before the hand has moved.* This is the tutorial. |
+| **0.08** | Drag begins. Eight streams start. Grains take **≈ 0.43 s** to fall, so there is always a **standing column of powder in the air behind the cursor** — the stroke is a falling ribbon, not a line. |
+| **0.20** | First grains touch the stone, hop once (~0.09 s, damped), settle. The pattern begins to exist. |
+| **0.55** | Steady state. **Airborne grains are hot and settled grains are warm** — the fragment shader reads `vFlight` (§6.5), which the closed-form position already computes, so this costs nothing. Bloom (`luminanceThreshold 0.28`) catches the live ribbon and almost none of the bed. **The live stroke is the brightest thing on screen and its own history is a warm ember trail behind it.** |
+| **1.60** | **The centre crossing.** All eight streams converge, cross, diverge. Eight-times density lands in one place: **the flare.** Bloom spreads warm light onto the wet stone, which returns it as a cool-to-warm fresnel sheen. The single brightest frame of the piece. |
+| **2.40** | Pointerup. Emission stops; grains already in the buffer complete their fall on their own clocks. |
 | **2.95** | Last grain settles. The pattern is complete, symmetric, warm on near-black. |
-| **3.0 → 4.2** | **The settle-breath.** The settled bed's `emissiveIntensity` eases `0.35 → 0.46 → 0.35` over 1.2 s. The piece exhales once. This is the "it is finished" signal, delivered without a word. |
-| **always** | **the Breath** (§6.3) keeps the camera drifting ±3.5°, so the wet-stone sheen slides slowly across the settled relief. **The scene is never fully static** — a judge who stops moving still sees the frame breathe. |
+| **3.0 → 4.2** | **The settle-breath.** `uEmissiveGain` eases `1.00 → 1.32 → 1.00` over 1.2 s. One uniform, one exhale. The "it is finished" signal, delivered without a word. The colophon's `print` line flickers once in the same beat (§8.8) and `R TO REPLAY` fades in beside it. |
+| **always** | **the Breath** (§6.3) drifts the camera ±3.5°, so the wet sheen slides slowly across the settled relief. **The scene is never fully static** — a judge who stops moving still sees the frame breathe. |
 
 ### 3.3 THE SCREENSHOT FRAME — exact composition
 
-**Captured at t = 1.68 s from the first WebGL frame** (= 0.90 s idle + 0.78 s into the Invocation,
-just past the centre crossing, when bloom is at maximum because grains are still converging in air).
-Deterministic and reproducible — see §4.1 and the `?still=1` freeze in §7.4.
+**Captured at `uTime = 1.68 s`** (= 0.90 s idle + 0.78 s into the Invocation, just past the centre
+crossing, when bloom peaks because grains are still converging in air). Deterministic and
+pixel-repeatable via `?still=1`, which freezes `uTime` at that value (§7.4).
 
 ```
 16 : 9   ·   kolam centre at 58% width, 56% height   ·   disc spans ~74% of frame width
 
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ ····· vignette crushes all four corners to #06080A (offset .28, dark .72) ··│
+│ ····· vignette crushes all four corners to #06080A ·························│
 │                                                                            │
 │  Threshold                                                                 │
 │  ▬▬▬  ← kumkum rule, 44 × 2 px                                             │
 │  கோலம் · a doorstep drawing                    ╭ 8 airborne arcs ╮          │
 │                                            ╭───┴──╮        ╭─────┴───╮     │
-│  One stroke falls as eight.               │  #F2A64B → #FFF3D6, blooming │  │
+│  One stroke falls as eight.               │ hot: #F2A64B → #FFF3D6, blooms │ │
 │  Rice powder on wet stone — a kolam,       ╰──╮ ╭──╯        ╰──╮ ╭────╯     │
-│  the way it is drawn on the                   ╳ ← THE FLARE ── ╳           │
+│  the way it is drawn on the                   ╳ ── THE FLARE ─ ╳           │
 │  doorstep at dawn.                         ╭──╯ ╰──╮        ╭──╯ ╰────╮     │
 │                                            ╰───┬──╯        ╰─────┬───╯     │
-│                                  settled relief #FFE6B0, raking key from   │
-│                                  the RIGHT, far edge of every grain rimmed │
-│                                  cool #4E7A94                              │
-│                              ▒▒▒▒░░  ← ONE QUADRANT STILL BARE STONE       │
+│                              settled bed #FFE6B0, lit from the RIGHT by    │
+│                              the lamp, every grain's far side rimmed cool  │
+│                              #4E7A94 by the pre-dawn                       │
+│                          ▒▒▒░░  ← ONE QUADRANT STILL BARE STONE            │
 │                                                                            │
-│  the Eightfold · every grain of this is generated in code   [MOTION][SWEEP] │
+│  eightfold — D4                    RULE                                    │
+│  seed 4821 · print 8f2a1c3d   GENERATED          [MOTION] [SWEEP]          │
 └────────────────────────────────────────────────────────────────────────────┘
-        film grain over the whole frame — Noise 0.035, SOFT_LIGHT
 ```
 
-Frame contents, in the order the eye reads them:
+What the eye reads, in order:
 
-1. **The flare** at the convergence point — the brightest pixel cluster in the frame, bloom radius
-   0.72 spilling warm light onto wet stone.
-2. **Eight airborne arcs** — each a distinct comma-shaped column of grains between y = 0.34 and
-   y = 0, `#F2A64B` core to `#FFF3D6` highlights, all blooming.
-3. **The settled relief** in the lower half — `#FFE6B0` catching the raking key from the right,
-   every grain's far edge rimmed cool `#4E7A94` by the pre-dawn rim light. This warm/cool split on a
-   single grain is what makes 3D powder read as 3D.
-4. **The title plate**, upper-left, over near-black. Real DOM type, crisp at any DPR.
+1. **The flare** — the brightest pixel cluster in frame, bloom spilling warm onto wet stone.
+2. **Eight airborne arcs** — each a comma-shaped column of grains between y = 0.34 and y = 0, hot
+   core to `#FFF3D6` highlights, all blooming.
+3. **The settled relief** — `#FFE6B0` under the lamp, **every grain's far side rimmed cool
+   `#4E7A94`.** This warm/cool split *on a single grain* is what makes flat point sprites read as
+   3D powder, and it is the entire reason for the analytic shading in §6.5.
+4. **The title plate**, upper-left, real DOM type, crisp at any DPR.
 5. **The vignette**, forcing the eye back to the flare.
 6. **The deliberate imperfection (rule 8):** the pattern is **not finished** — one quadrant of the
-   outer ring is still bare stone. In-progress reads as real; a finished mandala reads as staged.
+   outer ring is still bare stone. In-progress reads as real; a completed mandala reads as staged.
+   *(The build's second, verbal imperfection is the `SIMULATED` colophon line — PLAN.md §3.)*
 
-**The three required Devpost screenshots are a design deliverable, framed now:**
-- **#1 — gallery thumbnail:** the frame above, at t = 1.68 s.
-- **#2:** the finished kolam after three full strokes, settled, raking light, relief legible.
+**The three required Devpost screenshots are a design deliverable, framed now (T-24):**
+- **#1 — gallery thumbnail:** the frame above, `?still=1`.
+- **#2:** the finished kolam after three strokes, settled, lamp raking, relief legible.
 - **#3:** a Sweep at ~40% — half the pattern dissolving outward in a radial wave. Proves
-  interactivity in a still image, and is beautiful on its own.
+  interactivity in a still image and is beautiful on its own.
 
 ---
 
-## 4. Zero instructions — the three mechanisms, in order of who they catch
+## 4. Zero instructions — four mechanisms, in order of who they catch
 
 ### 4.1 the Invocation — fires unprompted at t = 0.9 s
 
-A pre-authored stroke plays itself through the exact same emitter a human drag uses. **The judge
-sees the Eightfold happen within three seconds of load, without touching anything.** This is what
-makes the 10-second gallery read work and it guarantees the site is never empty in a screenshot.
+**Not in PLAN.md; I am adding it. See §12.1 for the cost and the trade.**
 
-Control points, world XZ, interpolated as a `CatmullRomCurve3` (y = 0), total length ≈ 2.8:
+A canned path is fed to `core/grains.js` at load with the fixed seed and played through the same
+`uTime` clock a human stroke uses. **The judge sees the Eightfold happen within three seconds of
+load, without touching anything.** PLAN.md's §11 beat 1 requires the judge to move the cursor first;
+that is fine for the video but it fails design-craft §7 — **a judge who lands on the live URL and
+sees an empty dark plane has already scored criterion 1 from a blank frame.** The Invocation is also
+what makes the thumbnail reproducible instead of hand-caught.
+
+It is nearly free because **T-14 already builds replay-from-a-recorded-path**; the Invocation is that
+machinery pointed at a constant.
 
 ```js
-export const INVOCATION = [
+export const INVOCATION = [                 // world XZ, CatmullRom, y = 0, length ≈ 2.8
   [-1.02,  0.62], [-0.71,  0.30], [-0.38,  0.09], [-0.06, -0.04], [ 0.24, -0.02],
   [ 0.49,  0.14], [ 0.66,  0.41], [ 0.72,  0.74], [ 0.61,  1.01],
 ];
 ```
-
-- Starts at **t = 0.90 s** after the first WebGL frame. Duration **1.70 s** (≈1.65 world units/s).
-- Emits ≈ 200 pinch steps → **6,400 grains**.
-- It is **an open arc that does not close**. Incompleteness is the invitation — the judge's instinct
-  is to finish it. It is also where rule 8 lives: the control points are hand-shaped and slightly
-  irregular, so it looks drawn, not generated.
-- **It is authored to produce the thumbnail.** Its centre crossing lands at 0.78 s into the stroke.
+- Starts **t = 0.90 s** after the first frame, duration **1.70 s** (≈1.65 units/s).
+- Emits at **3 grains per sample** rather than 4, so it costs ≈ 3,400 of the 20,000 slots and leaves
+  the judge four full strokes before the ring recycles.
+- **It is an open arc that does not close.** Incompleteness is the invitation — the instinct is to
+  finish it. The control points are hand-shaped and irregular, so it looks drawn, not generated.
+- **Authored to produce the thumbnail:** its centre crossing lands 0.78 s in.
 - **Interruptible, always.** Pointer move during playback: it completes and hands over. Pointer
-  **down** during playback: it aborts within one frame and the judge's stroke takes over. It never
-  fights the user, and it never replays.
+  **down**: it aborts within one frame. It never fights the user and it never replays itself.
+- It uses the same seed as a normal session, so **the print shown after the Invocation is the
+  Invocation's own print** — determinism holds and pc-red-team can check it.
 
 ### 4.2 the hover ghosts — mouse only, before the first click
 
-While the pointer is over the stone and no drag is active, render the cursor point **plus its eight
-D4 images** as faint discs (`--powder-500`, additive, opacity 0.20, radius 0.03). Move the mouse and
-**eight ghost points swim across the stone in mirrored formation.**
+While the pointer is over the stone with no drag active, draw the cursor point **and its eight D4
+images** as faint discs (`--powder-500`, additive, opacity 0.20, radius 0.03 world). Move the mouse
+and **eight ghosts swim across the stone in mirrored formation.**
 
 This is the strongest teaching device in the piece: **the mechanism is demonstrated by hovering,
-before any commitment.** Cost: 9 instances in one `InstancedMesh`.
+before any commitment.** Cost: 9 points in the same `<points>` object with a `aGhost` flag, or a
+separate 9-vertex `<points>` — either, pc-frontend's call.
 
-### 4.3 the first pinch — touch and mouse alike
+### 4.3 the first sample — touch and mouse alike
 
-**One pinch fires on `pointerdown`, before any movement** (§3.2, t = 0.00). A tap alone produces
-eight marks. On touch, where there is no hover, this is the entire tutorial and it is delivered in
-under 100 ms. The emitter is arc-length driven at 0.014 world units, which is ~6–10 screen px, so
-the *second* pinch fires within the first few pixels of a drag — the response is genuinely on the
-first millimetre.
+**One sample-step emits on `pointerdown`, before any movement** (§3.2, t = 0.00). A tap alone
+produces eight marks. Arc-length resampling is 0.020 world units ≈ 8–12 screen px, so the second
+step fires within the first few pixels of a drag — the response is genuinely on the first millimetre.
+On touch, where no hover exists, **this is the entire tutorial and it lands in under 100 ms.**
 
-### 4.4 the pulli — the invitation
+### 4.4 the pulli — the invitation *(T-18, below the freeze line)*
 
-49 guide dots in a 7 × 7 square grid, spacing 0.44, extent ±1.32 (a square grid is itself
-D4-invariant, so it belongs). Before interaction their opacity breathes `0.35 → 0.55` on a 4 s sine,
-**phase-offset by distance from centre so the pulse ripples outward from the middle** — an
-unmistakable "here" without a word. On first pointerdown the ripple stops and the dots settle to a
-static 0.18: they have done their job and become substrate.
+49 guide dots, 7 × 7 square grid, spacing 0.44, extent ±1.32 — a square grid is itself D4-invariant,
+so it belongs. Before interaction, opacity breathes `0.35 → 0.55` on a 4 s sine, **phase-offset by
+distance from centre so the pulse ripples outward** — an unmistakable "here" without a word. On first
+pointerdown the ripple stops and the dots settle to a static 0.18.
+
+**PLAN.md ranks this cut-4th and I agree with that ranking.** §4.1–4.3 are the load-bearing teachers;
+this is the elegant extra. If it survives, it also improves the empty frame before the Invocation.
+**It is one `<points>` object with 49 vertices and a `MeshBasicMaterial`-equivalent shader — ~0.08 h.**
 
 ---
 
 ## 5. Layout
 
-### 5.1 Screen: `Stage` — desktop / landscape ≥ 1024 px
+### 5.1 `Stage` — desktop / landscape ≥ 1024 px
 
-The `<canvas>` is full-bleed and fixed at `z-index: 0`. All type is **DOM overlay** at `z-index: 1`
-with `pointer-events: none`, except the two buttons which re-enable it. No 3D text anywhere.
+Canvas is full-bleed and fixed at `z-index: 0`. **All type is DOM overlay** at `z-index: 1`,
+`pointer-events: none`, except buttons and the replay affordance which re-enable it. No 3D text.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -362,32 +380,34 @@ with `pointer-events: none`, except the two buttons which re-enable it. No 3D te
 │  doorstep at dawn.                              │  │  DISC    │  │  ⓕ        │
 │  ← max-width 31ch                               ╰──┤ r = 1.6  ├──╯           │
 │                                                    ╰──────────╯              │
-│                                                 centre at 58% w, 56% h       │
+│                                                 centre 58% w · 56% h         │
 │                                                 spans ~74% of frame width    │
 │                                                                              │
 │                                                              DRAG THE STONE ⓖ│
-│  the Eightfold · every grain of this   ⓗ         ⓘ [ MOTION ] [ SWEEP ] ←32px│
-│                                                                       ↓32px  │
+│  eightfold — D4                              RULE  ⓗ                         │
+│  seed 4821 · print 8f2a1c3d  R TO REPLAY GENERATED                           │
+│  19 208 grains                           OBSERVED    ⓘ [ MOTION ] [ SWEEP ]  │
+│  fall & settle — closed form, not physics SIMULATED               ↓32px ←32px│
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | | Element | Spec |
 |---|---|---|
-| ⓐ | Title | Display size. Top-left, `32px` inset. Enters with `opacity 0→1, translateY 8px→0` over `--dur-slow` `--ease-out`, **starting immediately on DOM paint — before WebGL initialises.** |
-| ⓑ | Kumkum rule | `height 2px`, `--kumkum`, `margin-top 14px`. **This element is also the load progress bar** (§8.1): it grows `0 → title width` while the bundle loads, then contracts to `44px` over `400ms`. One element, two jobs. |
-| ⓒ | Tamil sub-line | `margin-top 14px`. Hidden if `.no-tamil` (§1.4). |
-| ⓓ | Concept line | `margin-top 28px`, `max-width 31ch`. **Verification step:** screenshot the live frame; if the concept line's right edge touches the kolam's outer ring, drop `max-width` to `26ch`. Do not move the plate. |
-| ⓕ | Kolam disc | Projected ellipse of the drawable area. Camera offset (§6.2) puts it right-of-centre so the type block balances it. |
-| ⓖ | Hint | Bottom-right, above the buttons, `margin-bottom 20px`. Fades in over `--dur-mid` at t = 7 s **only if no pointerdown has occurred.** Removed permanently on first pointerdown. |
-| ⓗ | Colophon | Bottom-left, `32px` inset. Always visible. |
+| ⓐ | Title | Display size, top-left, `32px` inset. Enters `opacity 0→1, translateY 8px→0` over `--dur-slow` `--ease-out`, **starting on DOM paint — before WebGL initialises.** |
+| ⓑ | Kumkum rule | `2px` tall, `--kumkum`, `margin-top 14px`. **This element is also the load progress bar** (§8.1): it grows `0 → title width` during load, then contracts to `44px` over 400 ms. One element, two jobs. |
+| ⓒ | Tamil sub-line | `margin-top 14px`. Hidden under `.no-tamil`. |
+| ⓓ | Concept line | `margin-top 28px`, `max-width 31ch`. **Verification step, delegated:** screenshot the live desktop frame; if the concept line's right edge touches the kolam's outer ring, drop to `26ch`. **Do not move the title plate.** |
+| ⓕ | Kolam disc | The projected drawable area. The camera's `-0.22` x-offset (§6.2) puts it right of frame centre so the type block balances it. |
+| ⓖ | Hint | Bottom-right above the buttons, `margin-bottom 20px`. Fades in over `--dur-mid` at t = 7 s **only if no pointerdown has occurred.** Removed permanently on first pointerdown. |
+| ⓗ | Colophon | Bottom-left, `32px` inset. Four fact/tag rows — see §5.3. |
 | ⓘ | Controls | Bottom-right, `32px` inset, `gap 12px`. |
 
-### 5.2 Screen: `Stage` — portrait / ≤ 768 px
+### 5.2 `Stage` — portrait / ≤ 768 px
 
 ```
 ┌───────────────────────────────┐
 │ ↑ 20px + safe-area            │
-│  Threshold                    │  ← plate occupies the top 22% of the viewport
+│  Threshold                    │  ← plate owns the top 22% of the viewport
 │  ▬▬▬▬                         │
 │  கோலம் · a doorstep drawing   │
 │                               │
@@ -398,35 +418,62 @@ with `pointer-events: none`, except the two buttons which re-enable it. No 3D te
 │                               │
 │        ╭───────────────╮      │
 │     ╭──┤               ├──╮   │  ← disc spans 88% of viewport width
-│     │  │  KOLAM DISC   │  │   │     centre at 50% w, 58% h
+│     │  │  KOLAM DISC   │  │   │     centre 50% w · 58% h
 │     ╰──┤               ├──╯   │
 │        ╰───────────────╯      │
 │                               │
-│                               │
-│  the Eightfold · every grain  │  ← colophon wraps to 2 lines, 0.6875rem
-│  of this is generated in code │
-│  ┌──────────┐ ┌──────────┐    │  ← 44px min height, 88px min width
-│  │  MOTION  │ │  SWEEP   │    │     full-width row, gap 12px
-│  └──────────┘ └──────────┘    │
-│ ↓ 20px + env(safe-area-inset-bottom)   ← the home indicator MUST NOT overlap │
+│  print 8f2a1c3d     GENERATED │  ← colophon collapses to TWO rows on mobile
+│  closed form, not   SIMULATED │     (the two load-bearing tags, PLAN.md §3)
+│  physics                      │
+│  ┌────────┐┌────────┐┌───────┐│  ← 44px min height, full-width row, gap 12px
+│  │ MOTION ││ REPLAY ││ SWEEP ││     REPLAY replaces the R key on touch
+│  └────────┘└────────┘└───────┘│
+│ ↓ 20px + env(safe-area-inset-bottom)  ← the home indicator MUST NOT overlap  │
 └───────────────────────────────┘
 ```
 
-**Portrait-specific requirements:**
-- `html, body { height: 100dvh; overflow: hidden; overscroll-behavior: none; }` — `dvh`, not `vh`,
-  or mobile browser chrome clips the controls.
-- `overscroll-behavior: none` is **not optional**: without it, a downward drag near the top of the
-  page triggers pull-to-refresh and reloads the site mid-stroke.
+**Portrait-specific, all mandatory:**
+- `html, body { height: 100dvh; overflow: hidden; overscroll-behavior: none; }` — **`dvh`, not
+  `vh`**, or mobile browser chrome clips the control row.
+- **`overscroll-behavior: none` is not optional:** without it a downward drag near the top triggers
+  pull-to-refresh and reloads the site mid-stroke.
 - Canvas: `touch-action: none; user-select: none; -webkit-touch-callout: none;`
 - All four insets add `env(safe-area-inset-*)`.
 - Hint moves above the button row, centred.
+
+### 5.3 The epistemic-tag legend — the visual system
+
+PLAN.md §3 defines four tags. **Here is how they render.** They are the only place on the page where
+the build talks about itself, so they must read as craft, not as debug output.
+
+```
+  fact                                      tag
+  ├──────────────────────────────────────┤ │ ├──────────┤
+  eightfold — D4                          │  RULE
+  seed 4821 · print 8f2a1c3d              │  GENERATED
+  19 208 grains                           │  OBSERVED
+  fall & settle — closed form, not physics │  SIMULATED
+                                          ↑
+                                 1px --hairline, full block height
+```
+
+- **Fact column:** `0.75rem` IBM Plex Sans 400, `--ink-35`, right-aligned to the rule. The print
+  value alone is monospace `--ink-60` — it is the one value a judge is invited to compare.
+- **Tag column:** `0.6875rem` IBM Plex Sans 500, uppercase, `0.16em` tracking, `--ink-35`,
+  left-aligned after `16px` of gap.
+- **The rule:** 1px `--hairline`, spanning the block's full height. One vertical line, no boxes.
+- **All four tags are the same colour and the same weight.** The tag *word* carries the meaning.
+  **No colour coding, no icons, no dots, no emoji** — accessibility floor: meaning is never carried
+  by colour alone, and a colour-coded legend would need a key, which is a panel, which is refused.
+- **Live values** (`print`, `grains`) update on a `--dur-fast` opacity cross-fade, never by snapping.
+- **Mobile:** rows 2 and 4 only (`GENERATED`, `SIMULATED`) — PLAN.md §3 names those two as the
+  load-bearing ones. Rows 1 and 3 are dropped, not hidden behind a disclosure control.
 
 ---
 
 ## 6. The scene — every value pc-frontend needs
 
-World: Y up, ground plane at y = 0, kolam centred on the origin, drawable radius 2.40, guide grid
-extent ±1.32.
+World: Y up, ground plane at y = 0, kolam on the origin, drawable radius 2.40, pulli extent ±1.32.
 
 ### 6.1 Renderer
 
@@ -439,25 +486,27 @@ extent ±1.32.
     gl.toneMapping = THREE.ACESFilmicToneMapping;   // rolls warm highlights off instead of clipping
     gl.toneMappingExposure = 1.05;
     gl.outputColorSpace = THREE.SRGBColorSpace;
-    gl.shadowMap.enabled = false;                    // §7, technique 4
+    gl.shadowMap.enabled = false;
   }}
 />
 ```
-Antialiasing is off at the renderer because an `EffectComposer` is in front of it; DPR carries the
-edge quality. `multisampling={0}` on the composer at every tier.
+Antialiasing is off at the renderer because an `EffectComposer` is in front of it; DPR carries edge
+quality. `multisampling={0}` on the composer at every tier.
 
 ### 6.2 Camera
 
 ```js
 fov = 32          // long lens: compresses, reads photographic. A wide fov reads "game engine".
 near = 0.1, far = 40
-base position = (-0.22, 2.35, 2.95)      // the -0.22 pushes the kolam right of frame centre
+base position = (-0.22, 2.35, 2.95)      // -0.22 pushes the kolam right of frame centre
 lookAt        = ( 0.00, 0.02, -0.10)
 ```
-Pitch ≈ 38.5° above horizontal: high enough that the eightfold symmetry reads as a *pattern*, low
-enough that grains have visible height and the fall is a vertical event on screen.
+Pitch ≈ **38.5°** above horizontal. This supersedes PLAN.md's approximate "~35°" — it is derived from
+the framing, not chosen: high enough that the eightfold reads as a *pattern*, low enough that grains
+have visible height and the fall is a vertical event on screen. At fov 32 and d ≈ 3.77 the 3.2-unit
+disc fills ~74% of a 16:9 frame width, which is the composition in §3.3.
 
-**Responsive dolly** — recompute on resize, `aspect = w / h`:
+**Responsive dolly**, recomputed on resize with `aspect = w / h`:
 ```js
 const k = aspect >= 1.40 ? 1.00
         : aspect >= 1.00 ? 1.14
@@ -467,185 +516,297 @@ camera.position.set(-0.22 * k, 2.35 * k, 2.95 * k);
 camera.lookAt(0, 0.02, -0.10);
 if (aspect < 1.0) camera.rotateX(-0.045);   // pushes the disc down in frame, clearing the plate
 ```
+**`?fold=6` (T-15) needs no camera change** — D6 is still centred on the origin and its circumscribed
+radius is the same, so the composition holds unmodified. Confirmed, not assumed.
 
 ### 6.3 Camera motion — the Breath, and pointer parallax
 
-**No `OrbitControls`. No free camera.** The verb is drag-to-draw; a second drag verb means neither
-is learned (kill-risk 4).
+**No `OrbitControls`, no free camera, no scroll camera.** PLAN.md §12 refuses them and so does this:
+the verb is drag-to-draw, and a second drag verb means neither is learned (kill-risk 4). They would
+also destroy every screenshot's framing.
 
-- **the Breath:** continuous azimuth ±3.5° and pitch ±1.2° on a 34 s sine loop about the base
-  position. Amplitude is deliberately tiny — it must never fight the drawing. Its job is **proving
-  the scene is 3D**: without parallax, a fixed three-quarter view of a flat pattern can be mistaken
-  for a 2D illustration, which would cost the entry the whole premise of the event.
-- **Pointer parallax:** the lookAt target shifts up to 0.06 world units toward the pointer, lerped
-  at `0.04` per frame. Makes the scene feel alive before the first click. **Frozen to 0 while a drag
-  is active** — the pattern must not slide under the finger.
+- **the Breath:** continuous azimuth ±3.5°, pitch ±1.2°, on a 34 s sine about the base position.
+  Amplitude is deliberately tiny — it must never fight the drawing. Its job is **proving the scene is
+  3D**: without parallax, a fixed three-quarter view of a flat pattern can be read as a 2D
+  illustration, which would cost the entry the premise of the event.
+- **Pointer parallax:** lookAt target shifts up to 0.06 world units toward the pointer, lerped `0.04`
+  per frame. **Frozen to 0 while a drag is active** — the pattern must never slide under the finger.
 - Both **off** under reduced motion.
+- **Neither touches the grain buffer, so neither can change the print.** Say so in the README;
+  pc-red-team will attack exactly this (PLAN.md §4).
 
-### 6.4 Lighting rig — three lights, no shadow maps
+### 6.4 The lighting rig — as shared uniforms, not scene lights
 
-| # | Light | Values | Job |
-|---|---|---|---|
-| 1 | **the lamp** — `PointLight` | pos `(1.15, 0.62, 1.05)`, color `#FFB765`, intensity `9.0`, distance `7`, decay `2`, `castShadow = false` | The key. A diya at the edge of the doorstep. Low and warm, so it rakes across grain facets — this is where all the relief comes from. `decay 2` produces a real falloff gradient across the slab. |
-| 2 | **the cold** — `DirectionalLight` | pos `(-2.2, 1.4, -1.8)`, color `#4E7A94`, intensity `0.55` | Pre-dawn sky. Puts a cool rim on the far side of every grain and a cool sheen on the wet stone. **The warm/cool split on a single grain is the entire palette thesis.** |
-| 3 | **the bounce** — `HemisphereLight` | sky `#1A2830`, ground `#0A0806`, intensity `0.30` | Keeps shadow sides off pure black so grain silhouettes stay legible. No separate `AmbientLight`. |
-
-**Shadow maps are off at every tier.** This is the single largest performance decision in the build
-(§7, technique 4) and it costs nothing visually, because the relief comes from octahedral facet
-shading under a raking key, not from cast shadows.
-
-### 6.5 Environment — the wet
-
-Wet stone needs something to specular off. **Do not load an HDR.**
-
-```jsx
-<Environment frames={1} resolution={256}>
-  <Lightformer intensity={2.6} color="#FFB765" position={[ 2.0, 1.1,  1.4]} scale={[3, 1.2, 1]} />
-  <Lightformer intensity={1.1} color="#4E7A94" position={[-2.2, 1.8, -1.6]} scale={[4, 2.0, 1]} />
-</Environment>
-```
-`frames={1}` renders the cubemap **once at boot and never again** — zero per-frame cost, zero bytes
-downloaded, and the two lightformers mirror the two real lights so the sheen agrees with the key.
-
-### 6.6 Materials & geometry
-
-| Object | Geometry | Material |
-|---|---|---|
-| **Stone** | `PlaneGeometry(24, 24)`, `rotation-x = -π/2`, y = 0 | `MeshStandardMaterial` — `color #0B0F12`, `roughness 0.22`, `metalness 0.0`, `envMapIntensity 0.6`, `roughnessMap = <generated noise>` |
-| **Grain (both pools)** | `OctahedronGeometry(1, 0)` — 8 flat facets, 8 tris | `MeshStandardMaterial` — `color #FFE6B0`, `roughness 0.85`, `metalness 0.0`, `vertexColors` via `setColorAt`. **Flight pool:** `emissive #F2A64B`, `emissiveIntensity 0.75`. **Settled bed:** same emissive, `emissiveIntensity 0.35`. Two materials, so the live stroke is hot and its trail is warm — for free. |
-| **Pulli** | `IcosahedronGeometry(0.013, 1)`, 49 instances | `MeshBasicMaterial` `#3A4A52`, `transparent`, opacity animated |
-| **Cursor + 8 ghosts** | `CircleGeometry(1, 24)`, `rotation-x = -π/2`, y = 0.0015, 9 instances | `MeshBasicMaterial`, `AdditiveBlending`, `depthWrite: false`, `renderOrder: 2`, `map = <64×64 radial-gradient canvas>` so there is no hard disc edge |
-
-**Procedural roughness map (no image file).** In a `useMemo`: a 128 × 128 2D canvas, filled with
-value noise (`Math.random()` smoothed by a 3×3 box blur, twice), remapped to `0.14 – 0.34`, wrapped
-`RepeatWrapping`, `repeat.set(3, 3)`. ~15 lines. **This is the difference between "wet stone" and
-"black plastic"** and it is the highest visual return per line in the entire build.
-
-**Per-instance grain colour.** Once at emission, `setColorAt(i, ...)` sampling a 3-stop ramp:
-`--powder-core` 15% · `--powder-100` 60% · `--powder-300` 25%. Costs one buffer, written once,
-never touched again. Gives powder its non-uniform reality.
-
-### 6.7 Grain scale and the emitter
+**Both the ground and the grains are custom shaders, so there are no `three` light nodes in the final
+scene.** The rig lives in `render/lightRig.js` as constants both shaders import. This is a real
+simplification: zero lit materials, zero light uniform blocks, zero shadow logic, and it lets drei be
+removed as PLAN.md §5 wants.
 
 ```js
-GRAIN_SCALE      = 0.0075 + Math.pow(Math.random(), 1.8) * 0.0060   // 0.0075 – 0.0135
-PINCH_SPACING    = 0.014      // world units of path length between pinch steps
-GRAINS_PER_PINCH = 4          // Tier A · 3 at B · 2 at C
-SCATTER_RADIUS   = 0.019      // r = SCATTER_RADIUS * Math.random()  (centre-biased in 2D — powder
-                              //  is denser at the middle of a pinch; do NOT use sqrt here)
+export const KEY_POS   = [ 1.15, 0.62, 1.05];  // the lamp — a diya at the edge of the doorstep
+export const KEY_COLOR = '#FFB765';            // --lamp
+export const KEY_INT   = 9.0;                  // with 1/d² falloff, distance 7
+export const RIM_DIR   = [-2.2, 1.4, -1.8];    // the pre-dawn sky, normalised in the shader
+export const RIM_COLOR = '#4E7A94';            // --predawn
+export const RIM_INT   = 0.55;
+export const AMB_SKY   = '#1A2830';
+export const AMB_GND   = '#0A0806';
+export const AMB_INT   = 0.30;                 // keeps shadow sides off pure black
+```
+
+The key sits **low** (y = 0.62) on purpose: it rakes across the scene, which is where all the relief
+comes from. **The warm key against the cool rim, resolved on a single grain, is the entire palette
+thesis** — it is what makes a flat point sprite read as a lit 3D grain.
+
+**No shadow maps at any tier.** Nothing casts. Relief comes from §6.5's per-fragment shading.
+
+*(T-02's stub may use a plain `<directionalLight>` + `MeshStandardMaterial` to get something on
+screen fast. T-11 replaces it with this. That is expected, not a regression.)*
+
+### 6.5 `grain.frag` — the analytic grain, and why it matters most
+
+Point sprites are unlit billboards by default, which would give flat warm dots and lose the entire
+visual thesis. **This shader is what earns criterion 1.** It is ~25 lines and it is the highest
+visual-return-per-line in the build.
+
+```glsl
+vec2 uv = gl_PointCoord * 2.0 - 1.0;
+float r2 = dot(uv, uv);
+if (r2 > 1.0) discard;
+vec3 n = normalize(vec3(uv.x, -uv.y, sqrt(max(1.0 - r2, 0.0))));   // fake hemisphere, view space
+
+float lam  = max(dot(n, vKeyDirView), 0.0);                        // warm key, per-grain direction
+float rim  = pow(1.0 - max(n.z, 0.0), 2.2);                        // cool pre-dawn edge
+vec3 tint  = mix(mix(uPowderCore, uPowder100, vTint), uPowder300,   // 3-stop ramp, seeded per grain
+                 smoothstep(0.6, 1.0, vTint));
+
+vec3 col = uPowder700 * 0.22                       // shadow-side floor, never black
+         + tint * uKeyColor * (0.95 * lam) * vKeyFalloff
+         + uRimColor * rim * 0.55
+         + uEmissive * vFlight * uEmissiveGain;    // hot in air, warm on the ground
+
+float a  = smoothstep(1.0, 0.72, r2);              // soft edge — no hard disc, ever
+gl_FragColor = vec4(col, a * vAlpha);
+```
+
+- **`vKeyDirView`, `vKeyFalloff`, `vFlight`, `vTint`, `vAlpha` are all computed in the vertex
+  shader**, which already evaluates the closed-form position and therefore already knows where the
+  grain is and how far through its fall it is. **The flight/settled brightness split in §3.2 costs
+  nothing.**
+- `vFlight` = 1.0 mid-air → 0.28 settled. This is the same value the position formula uses; do not
+  introduce a second one.
+- **`uEmissive * vFlight` pushes airborne grains above 1.0 pre-tonemap**, which is exactly what
+  `Bloom`'s `luminanceThreshold 0.28` is tuned to catch. The two settings are a pair — change one and
+  retune the other.
+- **Blending:** `transparent: true`, `depthTest: true`, **`depthWrite: false`**, `NormalBlending`,
+  `renderOrder: 1`. Unsorted alpha is *correct by construction* here: grains are drawn in emission
+  order, so later powder blends over earlier powder, which is what falling powder does.
+- **`gl_PointSize` must be clamped `clamp(size, 1.0, 64.0)`.** Below 1.0 grains vanish; above 64 some
+  mobile GLES drivers drop the sprite entirely. Perspective-correct: `uSize * uScale / -mvPosition.z`.
+- Grain diameter **0.020 world units**, per-grain size jitter `0.75 – 1.35×` from the seeded RNG.
+
+### 6.6 `ground` shader — the wet stone
+
+Replaces `MeshStandardMaterial` + `<Environment>` + `<Lightformer>` entirely, which removes the drei
+dependency PLAN.md §5 put on probation and downloads nothing.
+
+> **REVISED 2026-08-23 19:45 by pc-designer, after the Crew Chief rejected the frame this
+> section's first version produced.** The original block is kept at the bottom of this section
+> because the reason it was wrong is the useful part. Implemented in
+> `src/render/ground.frag.js`; the four gains live in `src/render/lightRig.js`.
+
+```glsl
+// --- the stone: mottled near-black granite, spanning 900 -> 700 so the MEAN
+//     lands on --stone-800. This texture is why the ground can be this dark
+//     and still read as stone rather than as void.
+float grain  = noise2(vWorld.xz * 6.0) * 0.72 + noise2(vWorld.xz * 26.0) * 0.28;
+vec3  albedo = mix(uStone900, uStone700, clamp(grain, 0.0, 1.0));
+vec3  base   = albedo * uAmb;                          // GROUND_AMB — the pre-dawn ambient
+
+// --- the diya's pool. uPoolCore replaces the bare 1.0: a point-source 1/d² is
+//     only valid at d >> source, and the flame is ~0.1 units across sitting
+//     0.62 above the stone, so the near-lamp region is exactly where the point
+//     approximation spikes. 3.02 under the lamp -> 0.43 at the far edge.
+vec3  toKey = uKeyPos - vWorld;
+float pool  = uKeyInt / (uPoolCore + dot(toKey, toKey));
+vec3  L     = normalize(toKey);
+float ndl   = max(dot(vNormal, L), 0.0);
+vec3  lit   = albedo * uKeyColor * pool * (0.30 + 0.70 * ndl) * uGain;   // ALBEDO-MULTIPLIED
+
+// --- the wet. Carried by Fresnel, not by a specular lobe, and modulated by the
+//     same noise so the film is patchy. This is the only cool light in frame.
+float fres  = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 4.0);
+vec3  sheen = uSheen * fres * mix(0.55, 1.45, grain) * uSheenGain;
+
+// --- a glint, kept two orders of magnitude below bloom on purpose (see below).
+vec3  H     = normalize(L + vViewDir);
+float spec  = pow(max(dot(vNormal, H), 0.0), mix(210.0, 46.0, grain)) * mix(0.09, 0.02, grain);
+vec3  glint = uKeyColor * spec * pool * uGlintGain;
+
+vec3 col = base + lit + sheen + glint;
+col = mix(uStone900, col, smoothstep(9.0, 1.5, length(vWorld.xz)));   // vignette into the dark
+```
+
+| constant (`lightRig.js`) | value | what it does |
+|---|---|---|
+| `GROUND_AMB` | `15.0` | ambient gain on the stone tokens — sets the field's near-black level |
+| `GROUND_GAIN` | `1.5` | the diya's diffuse gain, applied to `albedo * irradiance` |
+| `GROUND_SHEEN` | `3.8` | Fresnel gain — the wet, and the only cool light in frame |
+| `GROUND_GLINT` | `0.02` | specular gain. **At `0.5` this single term was the rejected blob.** |
+| `GROUND_POOL_CORE` | `2.6` | softens 1/d² near the lamp; the diya is an area source |
+| `GROUND_FADE` | `[9.0, 1.5]` | unchanged from the original spec — measurement vindicated it |
+
+**`GROUND_AMB = 15.0` is not a bug.** ACES + exposure 1.05 + the post Vignette (§7.3) together
+attenuate this end of the range by roughly 12×: authored at `1.0`, `--stone-800` lands on screen as
+`#030101`, pure void. The gain is the pre-compensation that puts the token back where §1.1 says it
+belongs. Author in linear scene units, grade to the token, **and verify by sampling the rendered
+frame** — every number in the table above was set that way, not by eye.
+
+#### Why the first version of this section was wrong
+
+The original block added the lamp to the surface **independently of the stone's albedo**:
+
+```glsl
+vec3 col = uStone
+         + uKeyColor * spec * fall
+         + uKeyColor * fall * 0.06                     // <-- fog, not light
+         + uSheen    * fres * 0.35;
+```
+
+Near-black wet granite (`--stone-800` is ~0.5% linear reflectance) cannot return the lamp's own
+colour at 6% of full intensity however close the lamp gets. Because the term ignored albedo it
+scaled with `fall` alone, and the specular term (amplitude ~0.45 × `fall` ~5.5 ≈ 2.5 linear) blew a
+blob into the lower right. **Measured, the frame that spec produced: field `#341403`, lower right
+`#ff8827`.** The palette's entire warm/cool thesis — the powder is the only warm thing in the
+picture — was inverted by the ground.
+
+The fix is one structural change, not a tuning pass: **multiply the lamp by the albedo it is
+falling on.** The ground's brightest in-frame pixel is then ~0.02 linear instead of ~1.4, an order
+of magnitude below Bloom's `0.28` `luminanceThreshold`, so the ground now *cannot* bloom at any
+lamp distance. `KEY_POS` / `KEY_INT` (§6.4) are **unchanged** — the lamp was never the root cause,
+so the grains, which read the same uniforms and already looked right, are untouched.
+
+**Rule this leaves behind, for any surface added later:** a light term that is not multiplied by an
+albedo is fog. If you want haze, say haze and put it in the post chain.
+
+**Noise is generated in GLSL, not loaded and not baked to a canvas** — zero textures ship. The uneven
+roughness is the single detail that separates "wet stone" from "black plastic".
+
+**Escape hatch, named now so nobody improvises one at hour 3:** if this shader stalls past 20 minutes,
+fall back to `MeshStandardMaterial{ color:'#0B0F12', roughness:0.22, metalness:0 }` plus a
+`<pointLight>` at `KEY_POS` and a `<hemisphereLight>` from §6.4. That reaches ~70% of the look and
+keeps the schedule. Do not reach for drei's `<Environment>` — an HDR is a download.
+
+### 6.7 Emission constants — and one requirement on pc-backend
+
+```js
+SAMPLE_SPACING   = 0.020    // world units of arc length between resamples (PLAN.md §2)
+GRAINS_PER_SAMPLE= 4        // ×8 arms = 32 grains per sample-step (3 for the Invocation)
+SCATTER_RADIUS   = 0.019    // r = SCATTER * rng()   ← NOT sqrt(rng()): centre-biased, because
+                            //    powder is denser at the middle of a pinch
 DROP_HEIGHT      = 0.34
 V0_Y             = -0.10
-V0_XZ            = 0.055      // uniform in a disc
-GRAVITY          = -3.2       // stylised: slower than real, reads as fine powder in air
-RESTITUTION      = 0.28       // one hop, ~0.09 s, then settle on second contact
-FRICTION         = 0.50       // lateral damping at first contact
-SPIN             = 2.0 – 6.0 rad/s about a random axis, frozen on settle
-MAX_PINCH_PER_FR = 24         // per-frame emission cap; leftover path length CARRIES OVER,
-                              //  never dropped, so a fast drag trails slightly but never gaps
-DRAW_RADIUS_MAX  = 2.40       // grains beyond this are never created
-TELEPORT_LIMIT   = 0.45       // >0.45 world units in one frame = pen-up/pen-down, no interpolation
+GRAVITY          = -3.2     // stylised, slower than real — reads as fine powder in air
+RESTITUTION      = 0.28     // one damped hop, ~0.09 s
+FALL_TIME        ≈ 0.43 s   // fast enough to read as immediate, slow enough to be a visible event
+SPIN             = 2.0 – 6.0 rad/s (drives vTint shimmer only; points do not rotate)
+DRAW_RADIUS_MAX  = 2.40     // samples beyond this are never written
+TELEPORT_LIMIT   = 0.45     // >0.45 world units in one frame = pen-up/pen-down, no interpolation
+CAPACITY         = 20 000   // PLAN.md's cap, unchanged
 ```
-Fall time from 0.34 with `V0_Y = -0.10` under `g = -3.2` is **≈ 0.43 s** — fast enough that the
-response reads as immediate, slow enough that the fall is a visible event. 32 grains per pinch step.
+At 32 grains per 0.020 units, a stroke costs **1,600 grains per world unit** — so 20,000 slots is
+**≈ 12.5 units of path, about four full strokes** before the ring recycles. That headroom is
+deliberate: it is what makes the Walk-Over (§8.9) feel like a slow tide rather than a truncation.
 
 **`TELEPORT_LIMIT` is the fix for the classic bug** where the pointer leaves the window, re-enters
 elsewhere, and a straight line snaps across the pattern.
 
-**Time-step clamp, mandatory:** `dt = Math.min(delta, 1/30)` in `useFrame`. Without it, every grain
-teleports the instant the judge returns to a backgrounded tab.
+> **Requirement on pc-backend (T-06).** `aTint` and `aSize` must be **generated inside
+> `core/grains.js` from the seed and stored in the GrainBuffer**, exactly like jitter — *not* by
+> `Math.random()` in the renderer. Two reasons: `Math.random()` in `src/core/` fails
+> `boundary.test.js`, and per-grain appearance that is not seeded would make the replay visibly
+> different from the original while the print stayed the same, which is worse than no replay at all.
+> **Both attributes are part of the print.**
 
 ---
 
 ## 7. Performance budget
 
-### 7.1 The targets — stated, not implied
+### 7.1 Targets
 
 | Target | Value |
 |---|---|
-| Frame rate, Tier A, Apple M1 | **60 fps** sustained at 40,000 settled + 6,000 in-flight |
-| Frame rate, Tier C, Intel UHD 620 | **≥ 45 fps** |
+| Frame rate, integrated graphics (Intel UHD 620), full 20,000 cap | **60 fps** |
+| Frame rate, M1 | 60 fps with large headroom (the cap, not the GPU, is the limit) |
 | First contentful paint (typeset title plate) | **< 400 ms** |
-| First WebGL frame, cold cache, 5 Mbps | **< 1.6 s** |
-| Total transfer, gzipped | **< 600 KB** (three ≈170 · R3F ≈40 · postprocessing ≈90 · react+dom ≈45 · fonts ≈55 · app ≈30 → target **≈ 430 KB**) |
-| Draw calls, main pass | **≤ 8** (stone · settled bed · flight pool · pulli · cursor+ghosts · env is baked) |
-| Triangles | **≈ 372 k** (settled 320 k · flight 48 k · pulli 3.9 k · rest negligible) |
-| Sim CPU, per frame | **≈ 1.1 ms** (6,000 in-flight × ~0.18 µs) — leaves ~15 ms for render at 60 fps |
+| First WebGL frame, cold cache, 5 Mbps | **< 1.6 s** (PLAN.md's budget is < 2 s) |
+| Total transfer, gzipped | **< 600 KB**; target ≈ **430 KB** (three ≈170 · R3F ≈40 · postprocessing ≈90 · react+dom ≈45 · fonts ≈55 · app ≈30) |
+| Draw calls, main pass | **≤ 4** (ground · grains · cursor+ghosts · pulli) |
+| Steady-state CPU per frame | **three uniform writes and one integer** |
 
-### 7.2 The eight named techniques that hold it
+### 7.2 The seven named techniques that hold it
 
-1. **Flight-pool / settled-bed split.** Two `InstancedMesh`es. Grains in the air live in the flight
-   pool and are integrated every frame; the instant a grain settles it is written **once** into the
-   settled bed and removed from flight. Per-frame matrix writes are therefore **O(in-flight) ≤ 6,000**,
-   never O(total drawn) ≤ 40,000, and the cost does not grow as the judge keeps drawing. *This is the
-   technique that makes the whole piece possible.*
-2. **Contiguous `updateRange` commits.** Settled slots are allocated from a monotonic cursor, so the
-   dirty span is always contiguous. Set `settled.instanceMatrix.addUpdateRange(start*16, count*16)`
-   plus `needsUpdate = true`, so only the newly-landed span uploads instead of the full 2.56 MB
-   buffer. *If the installed three.js lacks `addUpdateRange`, fall back to full `needsUpdate` — it
-   still holds 60 fps on M1; the range path is the guard for integrated graphics.*
-3. **Zero-allocation typed-array simulation.** `pos`, `vel`, `quat`, `age`, `scale` in pre-allocated
-   `Float32Array`s. One reused `Matrix4` / `Vector3` / `Quaternion`; `m.compose(...)` then
-   `m.toArray(buf, i * 16)`. **No `new` inside `useFrame`. No `.map`/`.filter`/array literals in the
-   loop. No `setState` from `useFrame`.** No GC pressure means no frame-time spikes — and a single
-   50 ms GC pause is more visible to a judge than 10 fps of average loss.
-4. **No shadow maps, at any tier.** Relief comes from octahedral facet shading under a raking key at
-   y = 0.62 (§6.4). This removes an entire additional render of both instanced meshes every frame.
-5. **Single-frame procedural environment.** `<Environment frames={1} resolution={256}>` with two
-   `<Lightformer>`s (§6.5): the wet-stone specular costs one cubemap render at boot, zero per frame,
-   and downloads zero bytes.
-6. **Effect merging.** The `postprocessing` library compiles compatible `Effect`s into one fragment
-   shader — `Vignette` + `Noise` + tone mapping become a single pass. At Tier C the whole post chain
-   is bloom + one merged pass.
-7. **Frame-time governor, count-first and one-way.** Rolling mean over 90 frames. Mean > **20 ms**
-   (50 fps) trips a **one-way** step down (never promotes — no oscillation, nothing to tune). First
-   evaluation is deferred to **t = 1.5 s** so the judge's first impression is always Tier A.
-   **The governor cuts the grain count, never the frame rate.**
-8. **DPR clamp.** `dpr={[1, 2]}` desktop, `[1, 1.75]` on coarse pointers — a 3× phone is never asked
-   to render 3× .
+1. **Closed-form position in a vertex shader** (PLAN.md §1). Every grain's position at time *t* is a
+   function of its buffer entry, evaluated on the GPU. There is no integrator, no per-frame matrix
+   loop, no physics library, and **the per-frame cost does not grow as the judge keeps drawing.**
+   *This is the technique that makes the whole piece possible.*
+2. **Preallocated 20,000-slot buffer with a ring cursor.** Allocated once at startup. A ten-minute
+   unbroken scribble neither grows memory nor stalls — it recycles, which the design turns into the
+   Walk-Over (§8.9).
+3. **Contiguous `addUpdateRange` commits.** The ring cursor is monotonic, so the dirty span is always
+   contiguous: `attr.addUpdateRange(offset, n); attr.needsUpdate = true; geometry.setDrawRange(0, count)`.
+   Only newly-written grains upload, never the whole buffer. *(three 0.185 has `addUpdateRange`.)*
+4. **Zero allocation in the frame loop.** No `new` inside `useFrame`; no `.map`/`.filter`/`.forEach`
+   closures; **no `setState` from `useFrame`** — animation writes to refs and typed arrays only. A
+   single 50 ms GC pause is more visible to a judge than 10 fps of average loss.
+5. **No lit materials, no light nodes, no shadow maps.** Both shaders are hand-written and the rig is
+   uniforms (§6.4). Nothing casts; relief is per-fragment (§6.5).
+6. **Zero downloaded assets.** No HDR, no texture, no GLTF. Ground noise is GLSL; the environment is
+   an analytic fresnel term. This also removes drei, taking production deps to 7 (§1.4).
+7. **Degrade the emission rate, never the frame rate** (PLAN.md §8). `app/perf.js` keeps a rolling
+   p50 frame time; above **20 ms for 2 s** it lowers `GRAINS_PER_SAMPLE` 4 → 3 → 2. The live count
+   appears in the colophon under the `OBSERVED` tag as a neutral fact — see §8.13 for the tone rule.
 
-### 7.3 The tiers
+**Bloom degradation, ordered** (PLAN.md §8 says bloom is dropped first under frame pressure; here is
+what "dropped" means, in steps, so the frame never falls off a cliff):
+`levels 6 → 4` → `levels 3` → **off**. If bloom goes off entirely, compensate in the same commit:
+`toneMappingExposure 1.05 → 1.18` and `uEmissiveGain × 1.25`, or the frame reads dead. **Never ship a
+bloom-less frame without that compensation.**
 
-Coarse-pointer devices (`matchMedia('(pointer: coarse)')`) **start at Tier B** — mobile GPUs vary
-wildly and thermally throttle.
+**DPR clamp:** `[1, 2]` desktop, `[1, 1.75]` on coarse pointers — a 3× phone is never asked for 3×.
 
-| | **A** (default) | **B** | **C** |
-|---|---|---|---|
-| Grains per pinch | 4 | 3 | 2 |
-| Settled cap | 40,000 | 24,000 | 12,000 |
-| Flight pool | 6,000 | 4,000 | 2,500 |
-| Bloom `levels` | 6 | 4 | 3 |
-| Depth of field | on | **off** | **off** |
-| Noise (film grain) | on | on | off |
-| DPR ceiling | 2.0 | 1.5 | 1.0 |
-
-### 7.4 Post-processing — exact settings
+### 7.3 Post-processing — exact settings
 
 ```jsx
 <EffectComposer multisampling={0} disableNormalPass>
-  {tier === 'A' && (
+  {dofEnabled && (                                   // T-17, cut 3rd — off by default at Tier B/C
     <DepthOfField focusDistance={0.0155} focalLength={0.048} bokehScale={2.6} />
   )}
   <Bloom
     intensity={1.15}
-    luminanceThreshold={0.28}      // the live ribbon blooms; the settled bed almost does not
+    luminanceThreshold={0.28}      // paired with uEmissive * vFlight (§6.5) — retune both together
     luminanceSmoothing={0.22}
     mipmapBlur
     radius={0.72}
-    levels={LEVELS[tier]}
+    levels={bloomLevels}           // 6 → 4 → 3 → off, per §7.2
   />
   <Vignette offset={0.28} darkness={0.72} />
-  {tier !== 'C' && !reducedMotion && (
+  {!reducedMotion && bloomLevels > 3 && (
     <Noise opacity={0.035} premultiply blendFunction={BlendFunction.SOFT_LIGHT} />
   )}
 </EffectComposer>
 ```
-The film grain at 0.035 soft-light is the cheapest single thing that stops a WebGL scene from
-looking like a WebGL scene — and it is thematically exact, because the subject is powder.
+The film grain at 0.035 soft-light is the cheapest single thing that stops a WebGL scene looking like
+a WebGL scene — and it is thematically exact, because the subject is powder. `postprocessing` merges
+`Vignette` + `Noise` + tone mapping into **one** fragment shader, so the post chain is bloom plus one
+merged pass.
 
-**`?still=1`** — a query flag that runs the Invocation and then **freezes the simulation at
-t = 1.68 s** (§3.3) and holds it indefinitely. Ten lines. It makes the highest-weighted criterion's
-actual evaluation channel — the three screenshots and the gallery thumbnail — pixel-repeatable.
-It is in the never-cut list.
+### 7.4 `?still=1` — the screenshot freeze
+
+Runs the Invocation, then **freezes `uTime` at 1.68 s** and holds it. Since position is a pure
+function of `uTime`, this is a one-line clamp. It makes the actual evaluation channel for the
+heaviest criterion — the gallery thumbnail and the three screenshots — **pixel-repeatable instead of
+hand-caught.** It is in the never-cut list.
 
 ---
 
@@ -655,51 +816,53 @@ Every state below is a shipped state. None of them is a message box.
 
 | # | State | Entry | What the judge sees |
 |---|---|---|---|
-| **1** | **Boot** | Page load → first WebGL frame | **No white flash, ever** — `#06080A` is inline on `<body>` before any CSS. The title plate is DOM, so **`Threshold` is typeset on screen before WebGL initialises.** The kumkum rule grows `0 → title width` as the load progresses (easing toward 90%, completing on canvas-ready), then contracts to 44 px over 400 ms. **No spinner.** Typically < 600 ms. |
-| **2** | **Empty / attract** | First frame → t = 0.9 s | Wet stone, 49 pulli rippling outward from the centre, vignette, the Breath drifting. |
-| **3** | **Invocation** | t = 0.9 → 2.6 s | The auto-stroke plays (§4.1). Pulli ripple pauses. Aborts on pointerdown within one frame. |
-| **4** | **Idle-with-pattern** | 2.6 s → first input | The unfinished arc sits there. Hover ghosts live (mouse). Pulli ripple resumes at half amplitude. **At t = 7 s with still no interaction, `DRAG THE STONE` fades in bottom-right.** |
-| **5** | **First interaction** | pointerdown | Hint removed permanently. One pinch fires immediately — 8 marks before any movement. Pulli dim to 0.18. Pointer parallax freezes. |
-| **6** | **Mid-draw** | drag | Arc-length emission. Live ribbon `emissive 0.75`; settled trail `0.35`. Cursor point grows to r = 0.07, opacity 0.85. Beyond `DRAW_RADIUS_MAX = 2.40` the cursor point dims to 0.15 and emission stops — **the boundary is felt, never announced.** |
-| **7** | **Settling** | pointerup → +0.6 s | Emission stops; the in-flight grains complete their fall. `pointerleave`, `pointercancel`, and window `blur` all behave exactly as pointerup. |
-| **8** | **Settled** | last grain lands | The settle-breath: `emissiveIntensity 0.35 → 0.46 → 0.35` over 1.2 s. Cursor returns to r = 0.05 / 0.45. **the Breath keeps running — the scene is never fully static.** Live region announces `Eight strokes drawn.` |
-| **9** | **At capacity — the Walk-Over** | settled count hits the tier cap | Each newly settled grain **evicts the oldest**: the evicted grain scales `1 → 0` over 0.6 s `--ease-in`, then its slot is reused. It reads as the earliest strokes being softly walked away — which is what happens to a real kolam by midday. **The memory limit is the concept.** No error, no message, no cap warning. |
-| **10** | **Sweep** | `SWEEP` button or `Esc` | Settled grains scale to 0 over 0.9 s in a **radial wave from the centre outward**, mirroring the pulli ripple. Pulli ripple returns to 0.35–0.55. **In-flight grains complete their fall normally** — killing them mid-air reads as a bug. Button is `aria-disabled` at opacity 0.4 while the bed is empty. Live region: `Stone swept.` |
-| **11** | **Reduced motion** | `prefers-reduced-motion: reduce` **or** the MOTION button (manual overrides, persisted to `localStorage["threshold.motion"]`) | See §8a below. |
-| **12** | **WebGL unavailable / context lost** | probe fails, R3F error boundary, or `webglcontextlost` | See §8b below. |
-| **13** | **Tier degrade** | governor steps down | **Silent. Nothing in the UI changes.** The judge is never told their machine is slow. The only visible difference is slightly sparser powder and softer bloom, which still reads as intentional. |
-| **14** | **Touch** | coarse pointer | No hover ghosts (no hover exists). Cursor point appears on `touchstart`. **Only the first pointer is tracked; additional pointers are ignored** — prevents chaos and accidental pinch-zoom. |
+| **1** | **Boot** | load → first WebGL frame | **No white flash, ever** — `#06080A` is inline on `<body>`. The title plate is DOM, so **`Threshold` is typeset on screen before WebGL initialises.** The kumkum rule grows `0 → title width` (easing toward 90%, completing on canvas-ready), then contracts to 44 px over 400 ms. **No spinner.** Typically < 600 ms. |
+| **2** | **Empty / attract** | first frame → 0.9 s | Wet stone, vignette, the Breath drifting. Pulli rippling outward if T-18 survived. |
+| **3** | **Invocation** | 0.9 → 2.6 s | The canned stroke plays (§4.1). Aborts on pointerdown within one frame. Never replays itself. |
+| **4** | **Idle-with-pattern** | 2.6 s → first input | The unfinished arc sits there. Hover ghosts live (mouse). **At t = 7 s with still no interaction, `DRAG THE STONE` fades in bottom-right.** |
+| **5** | **First interaction** | pointerdown | Hint removed permanently. One sample-step fires immediately — 8 marks before any movement. Pulli dim to 0.18. Pointer parallax freezes. |
+| **6** | **Mid-draw** | drag | Arc-length emission at `SAMPLE_SPACING`. Hot ribbon, warm trail. Cursor point grows to r = 0.07 / opacity 0.85. Beyond `DRAW_RADIUS_MAX` the cursor dims to 0.15 and emission stops — **the boundary is felt, never announced.** |
+| **7** | **Settling** | pointerup → +0.6 s | Emission stops; grains already in the buffer finish falling on their own clocks. `pointerleave`, `pointercancel`, and window `blur` all behave exactly as pointerup. |
+| **8** | **Settled** | last grain lands | The settle-breath: `uEmissiveGain 1.00 → 1.32 → 1.00` over 1.2 s. **In the same beat the colophon's print value flickers once** (`opacity 0.35 → 0.9 → 0.55`, 700 ms) and `R TO REPLAY` fades in beside it. Live region: `Eight strokes drawn.` |
+| **9** | **At capacity — the Walk-Over** | ring cursor wraps at 20,000 | The oldest grains fade out (`vAlpha 1 → 0` over 0.6 s `--ease-in`) as their slots are rewritten. It reads as the earliest strokes being softly walked away — **which is what happens to a real kolam by midday. The capacity limit is the concept.** No error, no cap warning, no message. |
+| **10** | **Replay** | `R`, or the `REPLAY` control on touch | The recorded path replays from `uTime = 0` with the same seed. **The print does not change.** Live region: `Replayed. The print is unchanged.` The print value pulses once on completion so the eye returns to it and sees it unchanged — *the beat only lands if the judge is looking at the number.* |
+| **11** | **Sweep** | `SWEEP` or `Esc` | Grains fade out in a **radial wave from the centre outward** over 0.9 s (one `uSweep` uniform against each grain's radius), then `count = 0`. Pulli ripple returns. Button is `aria-disabled` at opacity 0.4 while the buffer is empty. Live region: `Stone swept.` |
+| **12** | **Reduced motion** | media query **or** the MOTION button | See §8a. |
+| **13** | **No WebGL / context lost** | probe fails, error boundary, or `webglcontextlost` | See §8b. |
+| **14** | **Perf degrade** | `app/perf.js` steps emission down | **No modal, no toast, no warning language, no "your device is slow".** The only change is the `OBSERVED` grain count in the colophon and slightly sparser powder — which still reads as intentional. *This reconciles my "never surface a downgrade" with PLAN.md's `Observed` tag: the fact is published as a neutral tagged fact; it is never framed as a problem.* |
+| **15** | **Touch** | coarse pointer | No hover ghosts (no hover exists). Cursor point appears on `touchstart`. **Only the first pointer is tracked; additional pointers are ignored** — prevents chaos and accidental pinch-zoom. |
 
 ### 8a. Reduced motion — the exact behaviour
 
-The mechanic must survive; only the motion goes.
+Entry: `prefers-reduced-motion: reduce` (automatic) **or** the MOTION button (manual, overrides
+either way, persisted to `localStorage["threshold.motion"]`).
 
 | | Normal | Reduced |
 |---|---|---|
 | the Breath | ±3.5° / 34 s | **off** — camera fixed at base |
 | Pointer parallax | on | **off** |
-| Pulli ripple | breathing 0.35–0.55 | **off** — static 0.42 |
-| Grain fall | falls 0.43 s, hops, settles | **no fall.** Grains appear directly at their settled position with a 200 ms opacity fade-in, ordered along the stroke — so **the stroke still draws and the Eightfold is still demonstrated**, with zero vestibular motion |
+| Pulli ripple | 0.35–0.55 breathing | **off** — static 0.42 |
+| Grain fall | falls 0.43 s, hops, settles | **`uMotion = 0`.** Grains render at their settled position with a 200 ms per-grain opacity fade-in ordered along the stroke. **The stroke still draws and the Eightfold is still demonstrated**, with zero vestibular motion |
 | the Invocation | plays with fall | plays without fall — the mechanic is still taught |
 | Settle-breath | 1.2 s pulse | **off** |
-| Film grain (`Noise`) | on, 0.035 | **off** — per-frame grain flicker is a genuine photosensitivity concern, not a nitpick |
+| Film grain | on, 0.035 | **off** — per-frame grain flicker is a genuine photosensitivity concern, not a nitpick |
 | Bloom, vignette, palette, lighting | on | **on, unchanged** — a static glow is not motion, and stripping the look would punish the user for the setting |
+| **The print** | — | **structurally unchanged.** `uMotion` is a render uniform; the buffer function never receives it (PLAN.md §4, proof 3). Filmable in four seconds. |
 
-**Photosensitivity floor:** no full-screen flashing at any time. The brightest event in the piece
-(the centre flare) is spatially local and its luminance ramp is well under 3 flashes/second.
+**Photosensitivity floor:** no full-screen flashing at any time. The brightest event (the centre
+flare) is spatially local and its luminance ramp is well under 3 flashes/second.
 
-### 8b. `Still` — the WebGL-unavailable screen
+### 8b. `NoWebGL` — the fallback screen
 
-The strategist flagged school-managed laptops with restricted WebGL (ANALYSIS §5). **This is the
-highest-leverage resilience item in the spec**, and it is not an error page.
+ANALYSIS §5 names school-managed laptops with restricted WebGL as kill-risk 1. **This is the
+highest-leverage resilience item in the spec, and it is not an error page.**
 
-**Detection, in this order:** (1) create a throwaway canvas and attempt `webgl2` then `webgl`
-**before mounting `<Canvas>`**; (2) an R3F error boundary around `<Scene>`; (3) a `webglcontextlost`
-listener on the live canvas.
+PLAN.md builds it as **inline SVG drawn by `core/` alone** — which is right, and better than the
+screenshot I first specced, because it proves the import boundary is real (PLAN.md §1). Here is what
+it must **look** like.
 
-**What ships:** `public/still.webp` — the §3.3 screenshot frame captured from the working build at
-`?still=1`, max 1600 px wide, 60–90 KB. It is referenced **only inside the `Still` component**, so
-the 97% of judges with working WebGL never fetch it.
+**Detection order:** (1) probe `webgl2` then `webgl` on a throwaway canvas **before** mounting
+`<Canvas>`; (2) an R3F error boundary around `<Scene>`; (3) a `webglcontextlost` listener.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -707,168 +870,185 @@ the 97% of judges with working WebGL never fetch it.
 │  Threshold                                                       │
 │  ▬▬▬▬▬▬                                                          │
 │  கோலம் · a doorstep drawing        ┌────────────────────────┐    │
-│                                    │                        │    │
-│  One stroke falls as eight.        │   still.webp — the     │    │
-│  Rice powder on wet stone —        │   §3.3 frame, the      │    │
-│  a kolam, the way it is drawn      │   real thing, not a    │    │
-│  on the doorstep at dawn.          │   placeholder          │    │
+│                                    │   inline SVG kolam,    │    │
+│  One stroke falls as eight.        │   drawn by core/ from  │    │
+│  Rice powder on wet stone —        │   INVOCATION + 2 more  │    │
+│  a kolam, the way it is drawn      │   authored strokes,    │    │
+│  on the doorstep at dawn.          │   seed 4821            │    │
 │                                    └────────────────────────┘    │
 │  This browser could not open a 3D canvas.    ← --ink-60, 0.95rem │
 │  The drawing is here anyway.                                     │
 │                                                                  │
-│  the Eightfold · every grain of this is generated in code        │
+│  eightfold — D4                    RULE                          │
+│  seed 4821 · print 8f2a1c3d   GENERATED                          │
 └──────────────────────────────────────────────────────────────────┘
 ```
-Same `#06080A` ground, same CSS radial-gradient warm key, same vignette, same title plate, same
-colophon, same type. **A judge on a locked-down laptop still sees a composed, on-message,
-typographically real frame and can still score Visual Design and Creativity.**
 
-Context lost mid-session: identical layout, copy swaps to `The 3D canvas was interrupted.`, plus a
-`RELOAD` button outlined in `--kumkum`.
+**SVG rendering spec** (so it is a composed frame, not a debug dump):
+- Run `core/grains()` over `INVOCATION` plus two more authored strokes at seed 4821, take the
+  **settled** position of each grain, and emit `<circle>` elements — **cap at ~1,100 circles**, taking
+  every *n*th grain, or the SVG bloats past 100 KB.
+- `r` between `1.5` and `3.5` px from `aSize`; `fill` from the same 3-stop tint ramp via `aTint`;
+  `opacity` `0.55 / 0.8 / 1.0` in thirds, so the bed has depth.
+- Ground: a `<rect>` of `#06080A` with **two `<radialGradient>`s** — one warm `--lamp` at 22% opacity
+  positioned to match `KEY_POS` in screen terms, one cool `--predawn` at 10% upper-left. The same
+  light rig, expressed in SVG.
+- A third radial gradient, `#06080A` at the edges, reproduces the vignette.
+- **No `<text>` inside the SVG.** All type is the same DOM plate.
+- Same title plate, same colophon (`RULE` + `GENERATED` rows only — there is no live grain count and
+  nothing is simulated, so `OBSERVED` and `SIMULATED` are correctly absent, which is itself honest).
+
+**A judge on a locked-down laptop still sees a composed, on-message, typographically real frame and
+can still score all three criteria.** Context lost mid-session: identical layout, copy swaps to
+`The 3D canvas was interrupted.`, plus a `RELOAD` button outlined in `--kumkum`.
 
 ---
 
 ## 9. Interaction & accessibility
 
-### 9.1 Input model
+### 9.1 Input model — and touch parity, stated beat by beat
 
 | Input | Behaviour |
 |---|---|
-| Mouse move (no button) | Cursor point + 8 hover ghosts follow. Pointer parallax active. |
-| Mouse down / touch start | One pinch fires immediately. Hint dismissed. Parallax frozen. |
-| Drag | Arc-length emission at `PINCH_SPACING`, capped at `MAX_PINCH_PER_FR` with carry-over. |
-| Up / leave / cancel / window blur | All treated identically as pointerup. |
+| Mouse move, no button | Cursor point + 8 hover ghosts follow. Pointer parallax active. |
+| Pointer down (mouse or touch) | One sample-step fires immediately. Hint dismissed. Parallax freezes. `setPointerCapture`. |
+| Drag | Arc-length emission at `SAMPLE_SPACING`. |
+| Up / leave / cancel / window blur | All identical to pointerup. |
 | Second+ touch point | **Ignored.** |
-| Fast flick | Carry-over means no gaps; the per-frame cap means no spike. |
 | Pointer teleport > 0.45 units/frame | Pen-up/pen-down. No line snaps across the pattern. |
 | Beyond radius 2.40 | Emission stops, cursor point dims to 0.15. No message. |
+| `R` | Replay. |
 | `Esc` | Sweep. |
+
+**Touch parity is not "it also works with a finger" — every beat has an equivalent:**
+
+| Beat | Desktop | Touch |
+|---|---|---|
+| Learn the mechanic | hover ghosts (§4.2) | the first sample on tap (§4.3), plus the Invocation |
+| Draw | drag | drag, `touch-action: none` |
+| Replay — **PLAN.md's beat 2** | `R` key | **the `REPLAY` button in the control row.** Without it, the determinism beat is desktop-only, and criterion 3 says *"responsiveness"*. Non-negotiable. |
+| Sweep | `Esc` or button | button |
+| Reduced motion | button | button |
 
 ### 9.2 Keyboard — the whole mechanic, operable
 
-Focus order: `MOTION` → `SWEEP` → canvas (`tabindex="0"`, `role="application"`, `aria-label` per §2).
+Focus order: `MOTION` → `REPLAY` → `SWEEP` → canvas (`tabindex="0"`, `role="application"`,
+`aria-label` per §2).
 
 - **Arrow keys** move a virtual pointer at 0.045 units per press (key-repeat while held).
-- **Space / Enter** toggles draw-lock: emission on/off. So a keyboard user draws exactly the same
-  eightfold pattern a mouse user does.
-- The emitter already accepts a world-space point, so this is ~20 lines. It is **cut-order item 1**
-  if the clock bites — but `Esc` = sweep and fully focusable buttons are **never** cut.
+- **Space / Enter** toggles draw-lock: emission on/off. A keyboard user draws the same eightfold
+  pattern a mouse user does.
+- The core already takes a world-space point, so this is ~20 lines. **It is cut-order item 1** if the
+  clock bites — but `R`, `Esc`, and fully focusable buttons are **never** cut.
 
 ### 9.3 Accessibility floor
 
-- **Contrast:** every type token verified against `#06080A` in §1.1. Lowest is `--ink-35` at 5.3 : 1
-  (AA at all sizes). Nothing below AA ships.
+- **Contrast:** every token verified against `#06080A` in §1.1. Lowest is `--ink-35` at 5.3 : 1 (AA
+  at all sizes). Nothing below AA ships. The epistemic tags at `0.6875rem` use `--ink-35` and pass.
 - **Focus:** `:focus-visible` → `outline: 2px solid var(--kumkum); outline-offset: 2px`.
   **`outline: none` without a replacement is banned.**
 - **Tap targets:** every button `min-height: 44px; min-width: 88px`.
 - **Never colour alone:** the MOTION button's state is carried by its **label text**
-  (`MOTION` / `MOTION REDUCED`), not by its border colour.
-- **Live region:** visually-hidden `aria-live="polite"` announcing `Eight strokes drawn.` and
-  `Stone swept.`, so a screen-reader user gets confirmation the action landed.
+  (`MOTION` / `MOTION REDUCED`), not by its border; the four epistemic tags are all one colour and
+  the tag word carries the meaning (§5.3).
+- **Live region:** visually-hidden `aria-live="polite"`, three strings in §2 — so a screen-reader user
+  gets confirmation the action landed, including that the print did not change.
 - **Font scaling:** all `rem`; layout survives 200% zoom.
 - **Reduced motion:** honoured automatically **and** manually overridable (§8a).
-- **No emoji anywhere** (EmoLens precedent).
+- **No emoji anywhere.**
 
 ---
 
-## 10. Component inventory & build order
+## 10. Where this maps onto the board
 
-```
-src/
-  main.jsx
-  App.jsx                 — layout shell · WebGL probe · error boundary · reduced-motion context
-  scene/
-    Scene.jsx             — <Canvas>, camera, responsive dolly, lights, Environment
-    Stone.jsx             — ground plane + generated roughness texture
-    Pulli.jsx             — 49 guide dots + ripple
-    Powder.jsx            — the two InstancedMesh pools; drives sim/grains each frame
-    Cursor.jsx            — cursor point + 8 hover ghosts (9 instances, one mesh)
-    Breath.jsx            — camera drift + pointer parallax
-    Post.jsx              — EffectComposer, tier-aware
-  sim/
-    eightfold.js          — the D4 transform. Pure. 20 lines. The product.
-    emitter.js            — arc-length pinch stepping, carry-over, teleport guard
-    grains.js             — typed-array pools · integrate · bounce · settle · evict (the Walk-Over)
-    invocation.js         — the authored path + playback + abort
-    tiers.js              — the frame-time governor
-  ui/
-    TitlePlate.jsx        — title · kumkum rule (= progress bar) · Tamil line · concept line
-    Controls.jsx          — MOTION · SWEEP
-    Hint.jsx              — the 7-second rescue
-    Colophon.jsx
-    Still.jsx             — the WebGL-unavailable / context-lost frame
-    LiveRegion.jsx
-  styles/tokens.css       — §1 verbatim
-  styles/app.css
-public/
-  fonts/InstrumentSerif-Regular.woff2, IBMPlexSans-Regular.woff2, IBMPlexSans-Medium.woff2
-  still.webp              — captured LAST, from the working build at ?still=1
-```
+Every design element above lands in an existing task. Nothing here creates a new owner.
 
-**Build order — the deploy-first, screenshot-safe sequence (≈160 min):**
-
-| # | Block | min | Why here |
-|---|---|---|---|
-| 1 | Vite + R3F scaffold · `<Canvas>` · camera · lights · Environment · Stone + roughness map | 25 | A lit wet slab on a public URL is already a scoring frame |
-| 2 | `eightfold.js` · `emitter.js` · `grains.js` · both InstancedMeshes · settle | 55 | The product. Nothing after this matters if this is not right |
-| 3 | TitlePlate · Controls · Colophon · tokens.css · fonts | 20 | Criterion 1 says "typography". DOM type also becomes the boot state for free |
-| 4 | Post (bloom/vignette/noise/DOF) + `tiers.js` governor | 20 | Criterion 1's cheapest 5 |
-| 5 | Pulli · Cursor + hover ghosts | 15 | The zero-instruction teaching layer |
-| 6 | Invocation · Hint · Sweep · `?still=1` | 20 | The 10-second gallery read |
-| 7 | Reduced motion · keyboard · live region | 15 | |
-| 8 | Capture `still.webp` at `?still=1`, wire `Still.jsx` | 10 | Must be last — it is a photograph of the finished build |
-
-**Cut order if the clock bites** (strictly this order):
-1. Keyboard virtual pointer (keep `Esc` = sweep and focusable buttons)
-2. Depth of field
-3. The bounce (grains settle on first contact, no hop)
-4. Pointer parallax
-5. The settle-breath
-
-**Never cut:** the Invocation · the Eightfold · the flight/settled split · the lighting + palette
-pass · the title plate · reduced motion · the `Still` fallback · `?still=1`.
+| Board task | What this document gives it |
+|---|---|
+| **T-02** stub | §6.2 camera values (use them now — reframing later is free but re-shooting is not). The stub's `<directionalLight>` + standard material is expected and is replaced at T-11. |
+| **T-06** core | §6.7's requirement: `aTint` and `aSize` are seeded, live in the GrainBuffer, and are part of the print. |
+| **T-08** grain renderer | §6.5 `grain.frag` in full · §6.7 constants · point-size clamp · blending and draw order. |
+| **T-09** signature moment | §3.1, §3.2, §4.3. |
+| **T-11** composition pass *(0.75 h, biggest scoring block)* | §1.1 palette · §6.4 light rig · §6.6 ground shader · §7.3 post settings · §6.3 the Breath. **This is where criterion 1 is won.** |
+| **T-12** site frame | §1.3–1.5 type · §2 copy · §5.1–5.2 layout · §5.3 the epistemic legend · §9.3. |
+| **T-13** resilience | §8a reduced motion · §8b `NoWebGL` visual spec · §8.1 boot. |
+| **T-14** replay + print | §8.10 · the print flicker in §8.8 · **the `REPLAY` touch control in §9.1** · and the Invocation in §4.1, which rides on this task's machinery. |
+| **T-18** pulli *(cut 4th)* | §4.4. |
+| **T-20** judge walk | §5.1 ⓓ's verification step; 390 px portrait against §5.2. |
+| **T-24** screenshots | §3.3 and `?still=1` from §7.4. |
 
 ---
 
 ## 11. Do not — patterns banned for this build
 
-1. **No `OrbitControls`, no free camera, no scroll-driven camera.** One verb: drag to draw. Two drag
-   verbs means neither is learned.
+Extends PLAN.md §12; everything it refuses is refused here too.
+
+1. **No `OrbitControls`, no free camera, no scroll-driven camera.** One verb. They also destroy every
+   screenshot's framing.
 2. **No loading spinner.** The title plate plus the growing kumkum rule *is* the loading state.
-3. **No modal, no onboarding overlay, no "click to start" gate.** A gate costs the 10-second read
-   outright.
-4. **No audio of any kind, no autoplay anything.** A judge with 40 tabs open must never be ambushed.
-5. **No glassmorphism, no `backdrop-filter`, no floating rounded UI card.** The type sits directly on
-   the scene.
+3. **No modal, no onboarding overlay, no "click to start" gate, no instruction panel.**
+4. **No audio of any kind, no autoplay anything.**
+5. **No glassmorphism, no `backdrop-filter`, no floating rounded UI card.** Type sits on the scene.
 6. **No emoji, anywhere.**
 7. **No `outline: none`** without a replacement focus ring.
-8. **No downloaded 3D models, no HDR/EXR environment file, no texture image files.** Roughness is
-   canvas-generated; the environment is `<Lightformer>`s at `frames={1}`.
-9. **No third-party font CDN.** Fonts are self-hosted woff2 in `/public/fonts/`.
-10. **No `html { font-size: 62.5% }`. No `px` type sizes.**
-11. **No per-frame allocation in the sim** — no `new Vector3`, no array literals, no
-    `.map`/`.filter`/`.forEach` closures inside `useFrame`.
-12. **No `setState` from `useFrame`.** All animation writes to refs and typed arrays.
-13. **No purple/violet/cyan tech gradient. No `#00FF__`.** Two families, one accent, nothing else.
-14. **No pure `#000` and no pure `#FFF`**, including type.
-15. **No 3D text.** No `TextGeometry`, no Troika. All typography is DOM.
-16. **No scroll.** The page is exactly one viewport, `overflow: hidden`.
-17. **No lorem ipsum, no placeholder copy.** Every string is in §2.
-18. **No "Made with React Three Fiber" badge, no tech-stack chips on the page.** The Technologies
-    field on Devpost is where the stack goes.
-19. **Never surface a performance downgrade** to the judge (§8.13).
-20. **Never drop the frame rate to keep the grain count.** Drop the count. Always.
+8. **No downloaded assets of any kind** — no GLTF, no HDR/EXR, no texture image, no CDN font. Ground
+   noise is GLSL; the environment is an analytic fresnel term.
+9. **No `html { font-size: 62.5% }`. No `px` type sizes.**
+10. **No `Math.random()` anywhere** — in `src/core/` it fails `boundary.test.js`, and in the renderer
+    it breaks replay fidelity (§6.7).
+11. **No per-frame allocation**, no `.map`/`.filter` closures in `useFrame`, **no `setState` from
+    `useFrame`.**
+12. **No purple/violet/cyan tech gradient. No `#00FF__`.** Two families, one accent.
+13. **No pure `#000`, no pure `#FFF`**, including type.
+14. **No 3D text.** No `TextGeometry`, no Troika. All typography is DOM.
+15. **No scroll.** The page is exactly one viewport, `overflow: hidden`.
+16. **No lorem ipsum, no placeholder copy.** Every string is in §2.
+17. **No "Made with React Three Fiber" badge, no tech-stack chips on the page.** The stack goes in
+    the Devpost Technologies field.
+18. **No warning language, ever** — not for perf degrade, not for the capacity cap, not for a small
+    viewport. The `OBSERVED` tag publishes a fact; it does not raise an alarm.
+19. **Never drop the frame rate to keep the grain count.** Drop the emission rate. Always.
+20. **Do not move the jitter after the group** to make the arms "more organic" (§3.1).
 
 ---
 
-## 12. Open flags for the Crew Chief
+## 12. Flags for the Crew Chief — three additions and two overrides
 
-1. **PLAN.md was not readable at write time** (parallel Phase 2). This spec covers `Stage` and
-   `Still` only. Any additional screen named in PLAN.md is uncovered and must return here.
-2. **No epistemic-tag legend is specified** — Threshold makes no informational claims. If PLAN.md
-   introduces one, this file needs a short amendment.
-3. **`still.webp` is a build-order dependency, not a design unknown.** It is a photograph of the
-   finished build and cannot exist before step 8.
-4. **One verification step is delegated to pc-frontend** (§5.1 ⓓ): screenshot the live desktop frame
-   and confirm the concept line does not touch the kolam's outer ring; if it does, reduce its
-   `max-width` from `31ch` to `26ch` and do **not** move the title plate.
+**These are decisions for you, not for pc-frontend. Everything above is buildable as written.**
+
+**12.1 — the Invocation is missing from PLAN.md, and I think that is the one real gap.** (§4.1)
+PLAN.md's beat 1 requires the judge to move the cursor before anything happens. A judge who lands on
+the live URL sees an empty dark plane, and design-craft §7 says the first screen must state what this
+is **visibly, without interaction**. It also makes the thumbnail hand-caught rather than reproducible.
+**Cost ≈ 0.10 h**, because T-14's replay machinery already does the work — the Invocation is that
+machinery pointed at a constant path. **Strong recommendation.**
+
+**12.2 — `REPLAY` needs a touch control.** (§9.1)
+PLAN.md's beat 2 (the print does not change) is bound to the `R` key, which does not exist on a phone.
+Criterion 3 names *"responsiveness"*. **Cost ≈ 0.05 h** — one button reusing the existing handler.
+**Strong recommendation.**
+
+**12.3 — `SWEEP` is not on the board.** (§8.11)
+Needed for engagement (a judge who likes their kolam wants a second go) and for screenshot #3.
+**Cost ≈ 0.05 h** — one uniform and a count reset. **Nice to have; cut-safe.**
+
+**Proposed trade, which does not touch the must-have set:** 12.1 + 12.2 + 12.3 total **≈ 0.20 h** and
+should displace **T-15 (`?fold=6`)** and **T-16 (settle-bounce refinement)** — PLAN.md's own cut-1st
+and cut-2nd. `?fold=6` is already fully captured by a passing test, and the bounce refinement is
+invisible at grain scale. This keeps T-01 → T-14 untouched.
+
+**12.4 — override, minor: camera pitch.** PLAN.md says "raking ~35°". §6.2 specifies **38.5°** with
+the framing arithmetic behind it. Use 38.5° from T-02 onward so nothing is reframed later.
+
+**12.5 — override, resolved not contested: the perf-degrade tone.** PLAN.md displays the live grain
+count under the `OBSERVED` tag; I had written "never surface a downgrade." Both hold: the count is
+published as a **neutral tagged fact in the colophon**, never as a warning, a toast, or a modal
+(§8.14, §11.18). No conflict remains.
+
+**Two things I did not have to override, worth saying:** the closed-form vertex shader is a better
+substrate than the instanced-mesh simulation I first specced, and the core-drawn SVG fallback is
+better than the screenshot fallback I first specced. Both are adopted as PLAN.md wrote them.
+
+**One dependency note:** §6.6's ground shader and §6.5's grain shader between them remove every use
+of `@react-three/drei`, so PLAN.md §5's probation resolves to **remove it at T-22** — production deps
+land at **7** including the two `@fontsource` packages.

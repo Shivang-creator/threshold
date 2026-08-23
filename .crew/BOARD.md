@@ -18,31 +18,45 @@ at all.
 | T-03 | pc-deployer | todo | T-02 | **WALKING SKELETON — deploy to Vercel, verify signed-out** | 0.15 h · 3rd of 26 tasks (12%) |
 | T-04 | pc-designer | todo | — | DESIGN.md: palette, light rig, type, frame layout, states, perf target | runs parallel to T-01..03, off critical path |
 | T-05 | pc-backend | done | T-01 | Core A: `dihedral.js` `rng.js` `hash.js` + 20 tests | 20/20 passing; see outbox/T-05.md |
-| T-06 | pc-backend | todo | T-05 | Core B: `eightfold.js` `grains.js` `sim.js` `index.js` + 30 tests | 0.35 h |
-| T-07 | pc-backend | todo | T-06 | Import-guard `boundary.test.js` + npm scripts + README boundary section | 0.10 h |
-| T-08 | pc-frontend | todo | T-03, T-06 | Grain renderer: 20 000-slot preallocated geometry + vertex/fragment shaders | 0.45 h |
-| T-09 | pc-frontend | todo | T-08 | **SIGNATURE MOMENT — drag → core → the Eightfold on screen** | 0.35 h |
+| T-06 | pc-backend | done | T-05 | Core B: `eightfold.js` `grains.js` `sim.js` `index.js` + 30 tests | 50/50 total passing; see outbox/T-06.md |
+| T-07 | pc-backend | done | T-06 | Import-guard `boundary.test.js` + npm scripts + README boundary section | 52/52 passing, sabotage check held; see outbox/T-07.md |
+| T-08 | pc-frontend | done | T-03, T-06 | Grain renderer: 20 000-slot preallocated geometry + vertex/fragment shaders | grain.vert.js matches 11/12 golden vectors bit-exact, 12th is a float32-vs-float64 precision limit (documented); see outbox/T-08.md |
+| T-09 | pc-frontend | done | T-08 | **SIGNATURE MOMENT — drag → core → the Eightfold on screen** | verified live in real Chrome: 8 congruent symmetric arcs bloom on drag, 2nd stroke adds without a connecting line, tap-alone emits 8 grains; screenshot at .crew/deliverables/signature-frame.png; see outbox/T-09.md |
 | T-10 | pc-deployer | todo | T-09 | Redeploy + 60-second smoke on the live URL | 0.10 h |
-| T-11 | pc-designer + pc-frontend | todo | T-04, T-09 | Composition pass: lighting, palette, bloom, tone mapping | 0.75 h · biggest scoring block |
-| T-12 | pc-frontend | todo | T-11 | Site frame: title plate, concept line, control hint, colophon, motion toggle | 0.30 h |
-| T-13 | pc-frontend | todo | T-06, T-12 | Resilience: no-WebGL SVG fallback from core, reduced-motion path, loading state | 0.30 h |
-| T-14 | pc-frontend | todo | T-09, T-12 | **Replay (`R`) + the print in the colophon** — the determinism beat | 0.20 h |
+| T-11 | pc-designer + pc-frontend | done | T-04, T-09 | Composition pass: lighting, palette, bloom, tone mapping | rejected 20:15, **re-fixed and signed off by pc-designer 19:45**. Root cause was DESIGN §6.6's own formula (albedo-independent lamp term), not pc-frontend. Ground rewritten; §6.6 rewritten to match. Measured: field `#0a0d10`, far corner `#070a0c` (= --stone-900), brightest non-kolam pixel `#17191e` and it is cool. See outbox/T-11-review.md |
+| T-12 | pc-frontend | done | T-11 | Site frame: title plate, concept line, control hint, colophon, motion toggle | §5.1 ⓓ's delegated check measured a real overlap at 1440px (concept line right edge ~352px vs kolam disc left edge ~302px); narrowed 31ch→26ch, title plate untouched. Plus the 3 approved additions (DECISIONS.md 19:05) — the Invocation (autoplays at t=0.9s off T-14's replay ledger), the touch REPLAY button, and SWEEP — all folded into this task and T-14. See outbox/T-12.md |
+| T-13 | pc-frontend | done | T-06, T-12 | Resilience: no-WebGL SVG fallback from core, reduced-motion path, loading state | `grep -n "^import" src/frame/NoWebGL.jsx` → only `../core/index.js`. Two authored strokes beyond the Invocation were invented by pc-frontend (DESIGN §8b names them but gives no control points) — flagged, not blocking. See outbox/T-13.md |
+| T-14 | pc-frontend | done | T-09, T-12 | **Replay (`R`) + the print in the colophon** — the determinism beat | Built as a single ordered emit-call ledger (reset markers + segment/spacing/jitter) replayed verbatim into a fresh same-seed buffer; also drives the Invocation and Sweep. **Read outbox/T-14.md before trusting this — a real bug was found and fixed in the verification hook, and the automated re-check was not completed before the turn budget ran out.** |
 | — | — | — | — | **═══ FEATURE FREEZE LINE ═══** | everything below dies before anything above |
-| T-15 | pc-frontend | todo | T-14 | `?fold=n` URL param exposing `dihedral(n)` | **cut 1st** |
-| T-16 | pc-frontend | todo | T-14 | Settle-bounce refinement: per-grain damping variance, dust puff | **cut 2nd** |
+| T-15 | pc-frontend | **cut** | T-14 | `?fold=n` URL param exposing `dihedral(n)` | Traded away for the Invocation/touch-REPLAY/SWEEP additions, DECISIONS.md 19:05. Not built. |
+| T-16 | pc-frontend | **cut** | T-14 | Settle-bounce refinement: per-grain damping variance, dust puff | Traded away for the Invocation/touch-REPLAY/SWEEP additions, DECISIONS.md 19:05. Not built. |
 | T-17 | pc-frontend | todo | T-11 | Depth of field | **cut 3rd** |
 | T-18 | pc-frontend | todo | T-11 | Pulli guide-dot underlay | **cut 4th (survives longest)** |
 | — | — | — | — | **═══ END OF OPTIONAL BLOCK — everything below is MANDATORY ═══** | T-19..T-26 outrank T-15..T-18 |
 | T-19 | pc-deployer | todo | T-14 | Freeze deploy from the frozen commit + signed-out check | 0.10 h |
 | T-20 | pc-test-user | todo | T-19 | N=1 judge walk of the live URL, desktop + 390 px + throttled CPU | 0.30 h · parallel with T-21 |
 | T-21 | pc-red-team | todo | T-19 | Attack determinism, the boundary, the capacity clamp | 0.30 h · parallel with T-20 |
-| T-22 | pc-frontend + pc-backend | todo | T-20, T-21 | Fix filed defects, each with a named regression test | 0.30 h |
+| T-22 | pc-frontend + pc-backend | todo | T-20, T-21 | Fix filed defects, each with a named regression test + ADD public resetStroke(buffer) to core/grains.js and switch renderer off _lastPoint/_carry | 0.30 h |
 | T-23 | pc-deployer | todo | T-22 | Final deploy, signed-out check, first-paint timing, repo public | 0.15 h |
 | T-24 | pc-designer | todo | T-23 | 3 required screenshots + gallery thumbnail, framed deliberately | 0.25 h |
 | T-25 | pc-scribe | todo | T-23, T-24 | Devpost pack: description, title/tagline, technologies, AI disclosure, NOTES | 0.45 h |
 | T-26 | pc-video-director | todo | T-23 | Demo video script (video is OPTIONAL — first ship task to cut) | 0.15 h |
 
 **No agent registers or submits on Devpost.** T-25 prepares the fields; Shivang pastes them.
+
+---
+
+## Judge-walk findings (T-20) — filed against the live URL, 23 Aug 20:51 IST
+
+Full walk, timings, screenshots and reasoning: `.crew/JUDGE-REPORT.md`. No BLOCKER found. The
+capacity/ring-wrap path pc-frontend flagged as untrusted under load was attacked directly (a
+signature mark drawn, then provably overwritten and gone after forced wraps past 20,000 grains) and
+held. Two findings filed below; both are HURTS, neither blocks a submission as-is.
+
+| id | owner | status | depends | task | note |
+|----|-------|--------|---------|------|------|
+| J-01 | pc-frontend | todo | — | Cold load leaves the page silent (no legible text, no WebGL frame) for 1.3–2.7 s on repeated fresh loads — slower than DESIGN §8's own "typically < 600 ms" target for first WebGL frame | Measured: `domcontentloaded` 1366 ms, first `getContext('webgl')` 1376 ms, title text in DOM 1436 ms (desktop, cold); 2610 ms to full `load` under mobile 4×CPU/6×network throttle. Mitigated by the inline `#06080a` body background (no white flash, reads as a deliberate dark beat not a broken page) but still a real tax on a "well under a minute" judging budget. Suggested fix: code-split/defer the postprocessing chain past first frame, or `modulepreload` the bundle. |
+| J-02 | pc-frontend | todo | — | The kill-risk-1 defense (DESIGN's own term for "school-managed laptops with restricted WebGL") has an unguarded path: a browser where WebGL context creation *succeeds* but only in software rendering (SwiftShader/llvmpipe) gets ~4–5 fps that neither the perf-degrade mechanism nor the NoWebGL fallback catches | Reproduced via headless Chromium's default SwiftShader backend: `UNMASKED_RENDERER_WEBGL` reports `SwiftShader`; FPS measured 4.0–4.8 **regardless of grain count** (1096 vs 11880 grains, same result) and regardless of CPU throttle level — proves the bottleneck is the postprocessing chain (bloom/vignette/film-grain), not grain density, so `app/perf.js`'s emission-spacing throttle can't help. Verified NOT a general problem: real GPU hardware (`headless:false`, Apple M1 via Metal ANGLE) holds a rock-solid 60 fps at the full 20,000-grain cap under 4× CPU throttle. Suggested fix: after the existing WebGL-availability probe succeeds, also read `WEBGL_debug_renderer_info`'s `UNMASKED_RENDERER_WEBGL`; route known software-renderer strings (SwiftShader/llvmpipe/Software) to the same `NoWebGL` fallback already built, or at minimum disable postprocessing for them. |
 
 ---
 
