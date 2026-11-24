@@ -30,10 +30,21 @@ function reflectionName(m00, m01, m10, m11, n, k) {
   return `s${k}`;
 }
 
+// cos/sin of a multiple of 90 degrees come back as 6e-17 or 0.9999999999999999
+// rather than 0 or 1; snap those to the exact integer so D4 stays exact. Any
+// other value is left alone. (Rounding every entry, as this used to, turned
+// the 60-degree rotation of D6 and the 45-degree rotation of D8 into
+// [[1,-1],[1,1]] -- determinant 2, not a rotation at all.)
+function snap(v) {
+  const r = Math.round(v);
+  return Math.abs(v - r) < 1e-12 ? r : v;
+}
+
 /**
- * The 2n elements of the dihedral group Dn, as exact-integer matrices when
- * n is a multiple of 4 (the case this build uses). Rotations first (det
- * +1), then reflections (det -1), each set ordered by k = 0..n-1.
+ * The 2n elements of the dihedral group Dn. Entries are exact integers when
+ * every angle is a multiple of 90 degrees (n = 1, 2, 4 -- D4 is the case
+ * this build uses) and ordinary floating-point cos/sin otherwise. Rotations
+ * first (det +1), then reflections (det -1), each set ordered by k = 0..n-1.
  * @param {number} n
  * @returns {Sym[]}
  */
@@ -42,8 +53,8 @@ export function dihedral(n) {
 
   for (let k = 0; k < n; k++) {
     const theta = (2 * Math.PI * k) / n;
-    const c = Math.round(Math.cos(theta));
-    const s = Math.round(Math.sin(theta));
+    const c = snap(Math.cos(theta));
+    const s = snap(Math.sin(theta));
     elems.push({
       name: rotationName(k, n),
       m00: c,

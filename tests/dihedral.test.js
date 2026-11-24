@@ -96,6 +96,22 @@ test('test_dihedral_6_has_twelve_elements', () => {
   assert.equal(dihedral(6).length, 12);
 });
 
+// Every element of any Dn is an isometry: its matrix determinant is +1 or -1
+// and matches the `det` it is labelled with. Rounding each entry used to give
+// D6 and D8 a "rotation" of [[1,-1],[1,1]], whose determinant is 2.
+test('test_dihedral_3_6_8_elements_are_isometries_with_the_labelled_det', () => {
+  for (const n of [3, 6, 8]) {
+    for (const s of dihedral(n)) {
+      const det = s.m00 * s.m11 - s.m01 * s.m10;
+      assert.ok(Math.abs(det - s.det) < 1e-12, `D${n} ${s.name}: det ${det}, labelled ${s.det}`);
+    }
+    const r = dihedral(n)[1];
+    const theta = (2 * Math.PI) / n;
+    assert.ok(Math.abs(r.m00 - Math.cos(theta)) < 1e-12, `D${n} first rotation has the wrong angle`);
+    assert.ok(Math.abs(r.m10 - Math.sin(theta)) < 1e-12, `D${n} first rotation has the wrong angle`);
+  }
+});
+
 test('test_d4_matrix_entries_are_all_in_minus_one_zero_one', () => {
   const allowed = new Set([-1, 0, 1]);
   for (const s of D4) {

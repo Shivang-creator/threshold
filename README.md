@@ -29,7 +29,7 @@ the boundary on purpose.
 
 ```
 npm run test:boundary   # 2 tests, ~70ms, no browser, no bundler
-npm test                # the full suite — 60 tests, ~150ms
+npm test                # the full suite — 61 tests, ~150ms
 ```
 
 The core is pure ESM JavaScript over numbers: `dihedral.js` (the symmetry group, as data),
@@ -74,7 +74,7 @@ branch boundary, far below anything a pixel could show.
 
 `node --test`, built in, zero dependencies — no vitest, no jest, no jsdom, no config file.
 
-**60 tests passing:** `dihedral.test.js` (10) · `rng.test.js` (6) · `hash.test.js` (4) ·
+**61 tests passing:** `dihedral.test.js` (11) · `rng.test.js` (6) · `hash.test.js` (4) ·
 `eightfold.test.js` (12) · `grains.test.js` (13) · `sim.test.js` (8) · `boundary.test.js` (2) ·
 `replayMessage.test.js` (3) · `float32Disclosure.test.js` (2).
 
